@@ -1,0 +1,5 @@
+app.yaml
+npm-debug.log
+.jenkins_api_token
+.slack_webhook_url
+.slack_verification_token

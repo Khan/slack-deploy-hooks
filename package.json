@@ -1,0 +1,21 @@
+{
+  "name": "khan-sun",
+  "version": "0.1.0",
+  "description": "Khan's outgoing webhooks for deployment",
+  "main": "app.js",
+  "scripts": {
+    "start": "babel-node app.js",
+    "monitor": "nodemon --exec npm run start -- app.js",
+    "predeploy": "build-scripts/predeploy",
+    "deploy": "npm run predeploy && gcloud preview app deploy app.yaml --set-default"
+  },
+  "dependencies": {
+    "babel": "^5.8",
+    "body-parser": "^1.13",
+    "express": "^4.13",
+    "node-slack": "0.0.7",
+    "q": "^1.4"
+  },
+  "author": "Benjamin Pollack <benjamin@khanacademy.org>",
+  "license": "MIT"
+}

@@ -1,0 +1,62 @@
+#!/usr/bin/env python
+# -*- coding: utf-8; -*-
+
+"""Automate deploying Sun updates.
+
+Right now this just builds an app.yaml with appropriate secrets.
+"""
+
+from __future__ import print_function
+
+import os
+import sys
+
+# Location of the app.yaml template
+APPFILE_TEMPLATE = 'app.template.yaml'
+# String to replace with the new version stamp
+VERSION_REPLACEMENT = 'XXX-REPLACE-WITH-NEW-VERSION-XXX'
+# String to replace with the Slack webhook URL
+SLACK_WEBHOOK_URL_REPLACEMENT = 'XXX-REPLACE-WITH-SLACK-WEBHOOK-URL-XXX'
+# Path to file containing the Slack Webhoook URL to use
+SLACK_WEBHOOK_URL_FILE = '.slack_webhook_url'
+# String to replace with the Slack verification token
+SLACK_VERIFICATION_TOKEN_REPLACEMENT =\
+    'XXX-REPLACE-WITH-SLACK-VERIFICATION-TOKEN-XXX'
+# Path to the file containing the Slack verification token
+SLACK_VERIFICATION_TOKEN_FILE = '.slack_verification_token'
+# String to replace with the Jenkins API token
+JENKINS_API_REPLACEMENT = 'XXX-REPLACE-WITH-JENKINS-API-TOKEN-XXX'
+# Path to file containing the Jenkins API token to use
+JENKINS_API_TOKEN_FILE = '.jenkins_api_token'
+
+
+def get_secret(filename, passphrase_id):
+    """Get a secret from the local build environment."""
+    if not os.path.exists(filename):
+        print(u'Please create a “%s” file with secret %s in it.'
+              % (filename, passphrase_id),
+              file=sys.stderr)
+        exit(1)
+    return open(filename).read().strip()
+
+
+def build_appfile(slack_webhook_url, slack_verification_token, jenkins_api_token):
+    """Build app.yaml from the template inserting necessary secrets."""
+    template = open(APPFILE_TEMPLATE, 'rb').read()
+    template = template.replace(SLACK_WEBHOOK_URL_REPLACEMENT, slack_webhook_url)
+    template = template.replace(SLACK_VERIFICATION_TOKEN_REPLACEMENT, slack_verification_token)
+    template = template.replace(JENKINS_API_REPLACEMENT, jenkins_api_token)
+    with open('app.yaml', 'w') as appfile:
+        appfile.write(template)
+
+
+def main():
+    slack_webhook_url = get_secret(SLACK_WEBHOOK_URL_FILE, "K95")
+    slack_verification_token = get_secret(SLACK_VERIFICATION_TOKEN_FILE, "K96")
+    jenkins_api_token = get_secret(JENKINS_API_TOKEN_FILE, "K92")
+    build_appfile(slack_webhook_url,
+                  slack_verification_token,
+                  jenkins_api_token)
+
+if __name__ == '__main__':
+    main()
