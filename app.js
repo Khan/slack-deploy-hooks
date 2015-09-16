@@ -451,7 +451,7 @@ const handlerMap = new Map([
     // Mark the version currently testing as default as good and mark the
     // deploy as done
     [/^finish.*$/i, handleFinish],
-    // Rollback a staged deploy, prior to setting it as default
+    // A message telling you to either abort or emergency rollback
     [/^rollback.*$/i, handleRollback],
     // Roll back production to the previous version after set default
     [/^emergency rollback.*$/i, handleEmergencyRollback],
