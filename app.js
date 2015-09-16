@@ -20,12 +20,12 @@
  */
 
 const help_text = `*Commands*
-  - ``sun: help`` - show the help text
-  - ``sun: deploy [branch name]`` - deploy a particular branch to production
-  - ``sun: set default`` - after a deploy succeeds, sets the deploy as default
-  - ``sun: abort`` - abort a deploy (at any point during the process)
-  - ``sun: finish`` - do the last step in deploy, to merge with master and let the next person deploy
-  - ``sun: emergency rollback`` - does an emergency rollback outside of deploy process
+  - \`sun: help\` - show the help text
+  - \`sun: deploy [branch name]\` - deploy a particular branch to production
+  - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
+  - \`sun: abort\` - abort a deploy (at any point during the process)
+  - \`sun: finish\` - do the last step in deploy, to merge with master and let the next person deploy
+  - \`sun: emergency rollback\` - does an emergency rollback outside of deploy process
 `;
 
 import https from "https";
