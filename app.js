@@ -15,17 +15,18 @@
  *     token Slack uses for this web service. (For testing, as long you keep
  *     it blank, it's fine.)
  *
- * Commands:
- *   sun: deploy <branch foo> - deploy a particular branch to production
- *   sun: set default - after a deploy succeeds, sets the deploy as default
- *   sun: abort - abort a deploy (at any point during the process)
- *   sun: finish - do the last step in deploy, to merge with master and let the next person deploy
- *   sun: rollback - get a note to use "sun, emergency rollback" instead
- *   sun: emergency rollback - does an emergency rollback outside of deploy process
- *
  * Author:
  *   bmp and csilvers
  */
+
+const help_text = `*Commands*
+  - ``sun: help`` - show the help text
+  - ``sun: deploy [branch name]`` - deploy a particular branch to production
+  - ``sun: set default`` - after a deploy succeeds, sets the deploy as default
+  - ``sun: abort`` - abort a deploy (at any point during the process)
+  - ``sun: finish`` - do the last step in deploy, to merge with master and let the next person deploy
+  - ``sun: emergency rollback`` - does an emergency rollback outside of deploy process
+`;
 
 import https from "https";
 import querystring from "querystring";
@@ -263,6 +264,11 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
 }
 
 
+
+function handleHelp(msg, deployState) {
+    replyAsSun(msg, help_text);
+}
+
 function handlePing(msg, deployState) {
     replyAsSun(msg, "I AM THE MONKEY KING!");
 }
@@ -275,10 +281,10 @@ function handleState(msg, deployState) {
         replyAsSun(msg, "Here's the state of the deploy: ```" +
             `\n${prettyRunningJob}\n\n${prettyState}\n` + "```");
     })
-        .catch(err => {
-            // If anywhere along the line we got an error, say so.
-            onHttpError(msg, err);
-        });
+    .catch(err => {
+        // If anywhere along the line we got an error, say so.
+        onHttpError(msg, err);
+    });
 }
 
 function handlePodBayDoors(msg, deployState) {
@@ -430,6 +436,8 @@ function handleDeploymentMessage(fn, msg) {
 }
 
 const handlerMap = new Map([
+    // Get help
+    [/^help$/i, handleHelp],
     // Return ping and verify you're in the right room
     [/^ping$/i, handlePing],
     // Return the dump of the JSON state
