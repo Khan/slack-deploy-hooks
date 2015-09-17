@@ -291,17 +291,17 @@ function handlePodBayDoors(msg, _deployState) {
     wrongPipelineStep(msg, "open the pod bay doors");
 }
 
-function handleMakeCheck(msg, deployState) {
-    jenkinsJobStatus('make-check').then(runningJob => {
+function handleMakeCheck(msg, _deployState) {
+    jenkinsJobStatus("make-check").then(runningJob => {
         if (runningJob) {
             replyAsSun(msg, "I think a make-check is already running. " +
                        "If you disagree, or want to queue another, " +
                        "take it up with Jenkins.");
         } else {
             const deployBranch = msg.match[1];
-            runJobOnJenkins(msg, 'make-check', {'GIT_REVISION': deployBranch},
+            runJobOnJenkins(msg, "make-check", {"GIT_REVISION": deployBranch},
                             "Telling Jenkins to run tests on branch `" +
-                            deployBranch + '`.');
+                            deployBranch + "`.");
         }
     });
 }
