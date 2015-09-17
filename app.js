@@ -299,7 +299,11 @@ function handleMakeCheck(msg, _deployState) {
                        "take it up with Jenkins.");
         } else {
             const deployBranch = msg.match[1];
-            runJobOnJenkins(msg, "make-check", {"GIT_REVISION": deployBranch},
+            const postData = {
+                "GIT_REVISION": deployBranch,
+                "SLACK_CHANNEL": msg.channel,
+            };
+            runJobOnJenkins(msg, "make-check", postData,
                             "Telling Jenkins to run tests on branch `" +
                             deployBranch + "`.");
         }
