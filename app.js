@@ -21,6 +21,7 @@
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
+  - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
   - \`sun: abort\` - abort a deploy (at any point during the process)
@@ -290,6 +291,21 @@ function handlePodBayDoors(msg, _deployState) {
     wrongPipelineStep(msg, "open the pod bay doors");
 }
 
+function handleMakeCheck(msg, deployState) {
+    jenkinsJobStatus('make-check').then(runningJob => {
+        if (runningJob) {
+            replyAsSun(msg, "I think a make-check is already running. " +
+                       "If you disagree, or want to queue another, " +
+                       "take it up with Jenkins.");
+        } else {
+            const deployBranch = msg.match[1];
+            runJobOnJenkins(msg, 'make-check', {'GIT_REVISION': deployBranch},
+                            "Telling Jenkins to run tests on branch `" +
+                            deployBranch + '`.');
+        }
+    });
+}
+
 function handleDeploy(msg, deployState) {
     if (deployState.POSSIBLE_NEXT_STEPS) {
         replyAsSun(msg, "I think there's a deploy already going on.  If that's " +
@@ -442,6 +458,8 @@ const handlerMap = new Map([
     [/^state$/i, handleState],
     // Attempt to open the pod bay doors
     [/^open the pod bay doors/i, handlePodBayDoors],
+    // Run tests on a branch outside the deploy process
+    [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Set the branch in testing to the default branch
