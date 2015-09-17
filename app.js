@@ -297,8 +297,7 @@ function handlePodBayDoors(msg, deployState) {
 function handleDeploy(msg, deployState) {
     if (deployState.POSSIBLE_NEXT_STEPS) {
         replyAsSun(msg, "I think there's a deploy already going on.  If that's " +
-            "not the case, or you want to start a deploy anyway,\n:speech_balloon: " +
-            "_“sun, deploy " + msg.match[1] + ", dagnabit”_.");
+            "not the case, take it up with Jenkins.");
         return;
     }
 
@@ -448,7 +447,7 @@ const handlerMap = new Map([
     // Attempt to open the pod bay doors
     [/^open the pod bay doors/i, handlePodBayDoors],
     // Begin the deployment process for the specified branch
-    [/^deploy\s+(?:branch\s+)?([^,]*)(, dagnabit)?$/i, handleDeploy],
+    [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Set the branch in testing to the default branch
     [/^set.default$/i, handleSetDefault],
     // Abort the current deployment step
