@@ -1,7 +1,7 @@
-# Khan Sun
+# Slack Deploy Hooks
 > The Khan deployment service for Slack
 
-Khan Sun replaces the old Sun Wukong Hubot plugin with a much simpler
+Slack Deploy Hooks replace the old Sun Wukong Hubot plugin with a much simpler
 webhook-based solution that otherwise works identically.
 
 ## Making a deploy
@@ -23,7 +23,7 @@ installer, if you prefer.)
 First, you can optionally provision secrets locally. Instructions will be
 given on your first deploy.
 
-Khan Sun is a vanilla Node application, so a simple
+The Slack deploy hooks are a vanilla Node application, so a simple
 
     $ npm install
     $ export SUN_DEBUG=1
