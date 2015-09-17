@@ -26,26 +26,22 @@ given on your first deploy.
 Khan Sun is a vanilla Node application, so a simple
 
     $ npm install
+    $ export SUN_DEBUG=1
     $ npm run monitor
 
-Will give you a fully
+Will give you a fully set-up local copy of khan-sun. You can then easily test
+it simply by using a tool like httpie and submitting Slack outgoing webhooks
+and observing the result. For example, to test the sun: ping command:
 
-WRITE THIS
+    http -f POST :8080/ \
+         team_id=T0001 team_domain=example \
+         channel_id=C2147483705 channel_name='bot-testing' \
+         user_name=bmp text='sun: ping' trigger_word=sun:
 
-    $ docker-compose run --rm hubot
-    slacker-cow> [Mon Aug 31 2015 15:47:34 GMT+0000 (UTC)] INFO /hubot/scripts/sun.js is using deprecated documentation syntax
-    [Mon Aug 31 2015 15:47:34 GMT+0000 (UTC)] INFO hubot-redis-brain: Discovered redis from REDIS_URL environment variable
-
-    slacker-cow> slacker-cow: ping
-    slacker-cow> PONG
-
-    slacker-cow> sun, finish up
-    slacker-cow> Shell: I'm not going to finish -- it's not time for that. If you disagree, bring it up with Jenkins.
-
-The docker compose configuration automatically mounts the `/hubot/bin` and
-`/hubot/scripts` directories in the container as volumes, so that you can test
-code modifications without rebuilding the image.
-
+Should give you the response like `{}`, indicating success, from the HTTP
+command, and print out the response text in the terminal running Sun. (If you
+do not see any output, you probably forgot to set the `SUN_DEBUG` flag specified
+above.)
 
 ### Build and Deploy
 

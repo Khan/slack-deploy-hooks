@@ -75,6 +75,9 @@ function sunMessage(msg, reply) {
  * @param reply the text you want to send as the reply
  */
 function replyAsSun(msg, reply) {
+    if (DEBUG) {
+        console.log(`Sending: "${reply}"`);
+    }
     slack.send(sunMessage(msg, reply));
 }
 
