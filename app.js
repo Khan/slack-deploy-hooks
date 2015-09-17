@@ -65,7 +65,7 @@ function sunMessage(msg, reply) {
         icon_emoji: ":monkey_face:",
         channel: msg.channel,
         text: `<@${msg.user}> ${reply}`
-    }
+    };
 }
 
 
@@ -93,21 +93,17 @@ function onHttpError(msg, res) {
     // Also log the error to /var/log/upstart/culture-cow.*.  (Recipe from
     // http://nodejs.org/api/http.html#http_http_request_options_callback).
     if (res.statusCode) {
-        console.error('ERROR TALKING TO JENKINS:');
-        console.error('   Status: ' + res.statusCode);
-        console.error('   Headers: ' + JSON.stringify(res.headers));
-        res.setEncoding('utf8');
-        res.on('data', chunk => {
-            console.error('   Body: ' + chunk);
+        console.error("ERROR TALKING TO JENKINS:");
+        console.error("   Status: " + res.statusCode);
+        console.error("   Headers: " + JSON.stringify(res.headers));
+        res.setEncoding("utf8");
+        res.on("data", chunk => {
+            console.error("   Body: " + chunk);
         });
     } else {
         console.error(res.stack);
         console.error(res);
     }
-}
-
-function wrongRoom(msg) {
-    replyAsSun(msg, "How dare you approach me outside my temple?!");
 }
 
 /**
@@ -130,7 +126,7 @@ function wrongPipelineStep(msg, badStep) {
 function httpsGet(url) {
     const deferred = Q.defer();
     const req = https.get(url, deferred.resolve);
-    req.on('error', deferred.reject);
+    req.on("error", deferred.reject);
     return deferred.promise;
 }
 
@@ -148,20 +144,20 @@ function getDeployState() {
  */
 function jenkinsJobStatus(jobName) {
     return httpsGet({
-        hostname: 'jenkins.khanacademy.org',
+        hostname: "jenkins.khanacademy.org",
         port: 443,
-        path: '/job/' + jobName + '/lastBuild/api/json',
-        auth: 'jenkins@khanacademy.org:' + process.env.JENKINS_API_TOKEN
+        path: "/job/" + jobName + "/lastBuild/api/json",
+        auth: "jenkins@khanacademy.org:" + process.env.JENKINS_API_TOKEN
     }).then(res => {
         const deferred = Q.defer();
         if (res.statusCode > 299) {
             deferred.reject(res);
         } else {
-            let data = '';
-            res.on('data', chunk => {
+            let data = "";
+            res.on("data", chunk => {
                 data += chunk;
             });
-            res.on('end', () => {
+            res.on("end", () => {
                 data = JSON.parse(data);
                 if (data.building === undefined) {
                     deferred.reject(res);
@@ -191,13 +187,13 @@ function jenkinsJobStatus(jobName) {
  * shouldn't happen.
  */
 function getRunningJob() {
-    const jobs = ['deploy-via-multijob', 'deploy-set-default', 'deploy-finish'];
+    const jobs = ["deploy-via-multijob", "deploy-set-default", "deploy-finish"];
     return Q.all(jobs.map(jenkinsJobStatus))
         .then(jobIds => {
             // `jobIds` is an array of jenkins job IDs corresponding to the names in
             // `jobs` (or null if there is none).  We want to find the first non-null
             // ID, along with the name to which it corresponds.
-            const runningIndex = jobIds.findIndex((id, index) => id);
+            const runningIndex = jobIds.findIndex((id, _index) => id);
             return {
                 jobName: jobs[runningIndex],
                 jobId: jobIds[runningIndex],
@@ -233,11 +229,11 @@ function cancelJobOnJenkins(msg, jobName, jobId, message) {
 // successful and are now getting redirected to a new page.)
 function runOnJenkins(msg, path, postData, message, allowRedirect) {
     const options = {
-        hostname: 'jenkins.khanacademy.org',
+        hostname: "jenkins.khanacademy.org",
         port: 443,
-        method: 'POST',
+        method: "POST",
         path: path,
-        auth: 'jenkins@khanacademy.org:' + process.env.JENKINS_API_TOKEN
+        auth: "jenkins@khanacademy.org:" + process.env.JENKINS_API_TOKEN
     };
 
     postData = querystring.stringify(postData);
@@ -260,19 +256,19 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
     });
 
     // write data to request body
-    req.setHeader('Content-length', postData.length);
-    req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+    req.setHeader("Content-length", postData.length);
+    req.setHeader("Content-Type", "application/x-www-form-urlencoded");
     req.write(postData);
     req.end();
 }
 
 
 
-function handleHelp(msg, deployState) {
+function handleHelp(msg, _deployState) {
     replyAsSun(msg, help_text);
 }
 
-function handlePing(msg, deployState) {
+function handlePing(msg, _deployState) {
     replyAsSun(msg, "I AM THE MONKEY KING!");
 }
 
@@ -290,8 +286,8 @@ function handleState(msg, deployState) {
     });
 }
 
-function handlePodBayDoors(msg, deployState) {
-    wrongPipelineStep(msg, 'open the pod bay doors');
+function handlePodBayDoors(msg, _deployState) {
+    wrongPipelineStep(msg, "open the pod bay doors");
 }
 
 function handleDeploy(msg, deployState) {
@@ -311,19 +307,19 @@ function handleDeploy(msg, deployState) {
         "BUILD_USER_ID_FROM_SCRIPT": caller + "@khanacademy.org"
     };
 
-    runJobOnJenkins(msg, 'deploy-via-multijob', postData,
+    runJobOnJenkins(msg, "deploy-via-multijob", postData,
         "Telling Jenkins to deploy branch `" + deployBranch + "`.");
 }
 
 function handleSetDefault(msg, deployState) {
-    if (!pipelineStepIsValid(deployState, 'set-default')) {
-        wrongPipelineStep(msg, 'set-default');
+    if (!pipelineStepIsValid(deployState, "set-default")) {
+        wrongPipelineStep(msg, "set-default");
         return;
     }
     const postData = {
-        'TOKEN': deployState.TOKEN
+        "TOKEN": deployState.TOKEN
     };
-    runJobOnJenkins(msg, 'deploy-set-default', postData,
+    runJobOnJenkins(msg, "deploy-set-default", postData,
         "Telling Jenkins to set `" + deployState.VERSION_NAME +
         "` as the default.");
 }
@@ -332,7 +328,7 @@ function handleAbort(msg, deployState) {
     getRunningJob().then(runningJob => {
         if (runningJob.jobName) {
             // There's a job running, so we should probably cancel it.
-            if (runningJob.jobName === 'deploy-finish') {
+            if (runningJob.jobName === "deploy-finish") {
                 // We shouldn't cancel a deploy-finish.  If we need to roll
                 // back, we now need to do an emergency rollback; otherwise we
                 // should just let it finish and then do our thing.
@@ -342,7 +338,7 @@ function handleAbort(msg, deployState) {
                     "_“sun, emergency rollback”_).  If not, just let it " +
                     "finish, or <https://jenkins.khanacademy.org/job/" +
                     "deploy-finish/" + runningJob.jobId + "|check what it's" +
-                    "doing> yourself.")
+                    "doing> yourself.");
             } else {
                 // Otherwise, cancel the job.
                 cancelJobOnJenkins(msg, runningJob.jobName, runningJob.jobId,
@@ -357,27 +353,27 @@ function handleAbort(msg, deployState) {
                 "some problems after a deploy finished, :speech_balloon: " +
                 "_“sun, emergency rollback”_.  If you think there's a " +
                 "deploy going, then I'm confused and you'll have to talk " +
-                "to Jenkins yourself.")
+                "to Jenkins yourself.");
         } else {
             // Otherwise, we're between jobs in a deploy, and we should determine
             // from the deploy state what to do.
             const postData = {
-                'TOKEN': deployState.TOKEN,
-                'WHY': 'aborted'
+                "TOKEN": deployState.TOKEN,
+                "WHY": "aborted"
             };
             let response;
-            if (pipelineStepIsValid(deployState, 'set-default')) {
+            if (pipelineStepIsValid(deployState, "set-default")) {
                 // If no build is running, and we could set default, we can just as
                 // easily just give up
-                postData.STATUS = 'failure';
-                response = 'abort';
+                postData.STATUS = "failure";
+                response = "abort";
             } else {
                 // Otherwise, we'd better roll back.
-                postData.STATUS = 'rollback';
+                postData.STATUS = "rollback";
                 postData.ROLLBACK_TO = deployState.ROLLBACK_TO;
-                response = 'abort and roll back';
+                response = "abort and roll back";
             }
-            runJobOnJenkins(msg, 'deploy-finish', postData,
+            runJobOnJenkins(msg, "deploy-finish", postData,
                 "Telling Jenkins to " + response + " this deploy.");
         }
     })
@@ -388,19 +384,19 @@ function handleAbort(msg, deployState) {
 }
 
 function handleFinish(msg, deployState) {
-    if (!pipelineStepIsValid(deployState, 'finish-with-success')) {
-        wrongPipelineStep(msg, 'finish-with-success');
+    if (!pipelineStepIsValid(deployState, "finish-with-success")) {
+        wrongPipelineStep(msg, "finish-with-success");
         return;
     }
     let postData = {
-        'TOKEN': deployState.TOKEN,
-        'STATUS': 'success'
+        "TOKEN": deployState.TOKEN,
+        "STATUS": "success"
     };
-    runJobOnJenkins(msg, 'deploy-finish', postData,
+    runJobOnJenkins(msg, "deploy-finish", postData,
         "Telling Jenkins to finish this deploy!");
 }
 
-function handleRollback(msg, deployState) {
+function handleRollback(msg, _deployState) {
     replyAsSun(msg, "Are you currently doing a deploy?\n:speech_balloon: " +
         "_“sun, abort”_\nDo you want to roll back the production " +
         "servers because you noticed some problems with them after " +
@@ -408,8 +404,8 @@ function handleRollback(msg, deployState) {
         "_“sun, emergency rollback”_.");
 }
 
-function handleEmergencyRollback(msg, deployState) {
-    const jobname = '---EMERGENCY-ROLLBACK---';
+function handleEmergencyRollback(msg, _deployState) {
+    const jobname = "---EMERGENCY-ROLLBACK---";
     runJobOnJenkins(msg, jobname, {},
         "Telling Jenkins to roll back the live site to a safe " +
         "version");
@@ -425,11 +421,11 @@ function handleDeploymentMessage(fn, msg) {
             } else if (res.statusCode > 299) {
                 deferred.reject(res);
             } else {
-                let data = '';
-                res.on('data', chunk => {
+                let data = "";
+                res.on("data", chunk => {
                     data += chunk;
                 });
-                res.on('end', () => deferred.resolve(JSON.parse(data)));
+                res.on("end", () => deferred.resolve(JSON.parse(data)));
             }
             return deferred.promise;
         })

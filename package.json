@@ -7,6 +7,7 @@
     "start": "babel-node app.js",
     "monitor": "nodemon --exec npm run start -- app.js",
     "predeploy": "build-scripts/predeploy",
+    "lint": "eslint --fix *.js",
     "deploy": "npm run predeploy && gcloud preview app deploy app.yaml --set-default"
   },
   "dependencies": {
@@ -15,6 +16,9 @@
     "express": "^4.13",
     "node-slack": "0.0.7",
     "q": "^1.4"
+  },
+  "devDependencies": {
+    "eslint": "^1.4"
   },
   "author": "Benjamin Pollack <benjamin@khanacademy.org>",
   "license": "MIT"
