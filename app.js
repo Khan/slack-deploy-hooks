@@ -302,6 +302,7 @@ function handleMakeCheck(msg, _deployState) {
             const postData = {
                 "GIT_REVISION": deployBranch,
                 "SLACK_CHANNEL": msg.channel,
+                "REPORT_RESULT": true,
             };
             runJobOnJenkins(msg, "make-check", postData,
                             "Telling Jenkins to run tests on branch `" +
