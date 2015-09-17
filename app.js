@@ -26,7 +26,7 @@ const help_text = `*Commands*
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
   - \`sun: abort\` - abort a deploy (at any point during the process)
   - \`sun: finish\` - do the last step in deploy, to merge with master and let the next person deploy
-  - \`sun: emergency rollback\` - does an emergency rollback outside of deploy process
+  - \`sun: emergency rollback\` - roll back the production site outside of the deploy process
 `;
 
 import https from "https";
@@ -412,14 +412,6 @@ function handleFinish(msg, deployState) {
         "Telling Jenkins to finish this deploy!");
 }
 
-function handleRollback(msg, _deployState) {
-    replyAsSun(msg, "Are you currently doing a deploy?\n:speech_balloon: " +
-        "_“sun, abort”_\nDo you want to roll back the production " +
-        "servers because you noticed some problems with them after " +
-        "their deploy was finished?\n:speech_balloon: " +
-        "_“sun, emergency rollback”_.");
-}
-
 function handleEmergencyRollback(msg, _deployState) {
     const jobname = "---EMERGENCY-ROLLBACK---";
     runJobOnJenkins(msg, jobname, {},
@@ -469,10 +461,10 @@ const handlerMap = new Map([
     // Mark the version currently testing as default as good and mark the
     // deploy as done
     [/^finish.*$/i, handleFinish],
-    // A message telling you to either abort or emergency rollback
-    [/^rollback.*$/i, handleRollback],
     // Roll back production to the previous version after set default
     [/^emergency rollback.*$/i, handleEmergencyRollback],
+    // Catch-all: if we didn't get a valid command, send the help message.
+    [/^.*$/i, handleHelp],
 ]);
 
 const app = express();
