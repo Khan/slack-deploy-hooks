@@ -37,9 +37,16 @@ import express from "express";
 import bodyParser from "body-parser";
 import Q from "q";
 
-// The room to listen to deployment commands in. For safety reasons,
-// culture cow will only listen in this room by default.
-const DEPLOYMENT_ROOM = process.env.DEPLOY_ROOM || "#bot-testing";
+// The room to listen to deployment commands in.  For safety reasons, culture
+// cow will only listen in this room by default.  This should be a slack
+// channel ID, because the API we're using to send doesn't support linking to a
+// room by name.  You can get the list of our channels, including their IDs, at
+// https://api.slack.com/methods/channels.list/test; we could probably call
+// this dynamically, but for now, hard-coding it is easier.  The default is
+// #bot-testing.
+// TODO(benkraft): if Slack ever fixes this issue, switch to using the room
+// name for readability.
+const DEPLOYMENT_ROOM = process.env.DEPLOY_ROOM || "C090KRE5P";
 
 // Whether to run in DEBUG mode.  In DEBUG mode, culture cow will not
 // actually post commands to Jenkins, nor will it only honor Jenkins
@@ -481,13 +488,14 @@ app.post("/", (req, res) => {
     }
     const message = {
         channel: "#" + req.body.channel_name,
+        channel_id: req.body.channel_id,
         user: req.body.user_name,
         text: req.body.text.substring(req.body.trigger_word.length).trimLeft()
     };
-    if (message.channel !== DEPLOYMENT_ROOM) {
+    if (message.channel_id !== DEPLOYMENT_ROOM) {
         res.json(sunMessage(
             message,
-            `Sorry, I only respond to messages in <${DEPLOYMENT_ROOM}>!`));
+            `Sorry, I only respond to messages in <#${DEPLOYMENT_ROOM}>!`));
         return;
     }
     for (let [rx, fn] of handlerMap) {
