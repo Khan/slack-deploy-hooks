@@ -4,6 +4,17 @@
 Slack Deploy Hooks replace the old Sun Wukong Hubot plugin with a much simpler
 webhook-based solution that otherwise works identically.
 
+## Settings
+
+The environment variable `DEPLOY_ROOM_ID` sets the room in which the hooks will
+listen.  It should be a Slack channel ID, which you can get from the [Slack API
+test client][api-test].
+
+[api-test]: https://api.slack.com/methods/channels.list/test
+
+For a deploy, you will also need several secrets.  The deploy script will give
+instructions.
+
 ## Making a deploy
 
 ### Prerequisites

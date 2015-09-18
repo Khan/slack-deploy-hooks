@@ -10,7 +10,7 @@ env_variables:
   SLACK_WEBHOOK_URL: XXX-REPLACE-WITH-SLACK-WEBHOOK-URL-XXX
   SLACK_VERIFICATION_TOKEN: XXX-REPLACE-WITH-SLACK-VERIFICATION-TOKEN-XXX
   JENKINS_API_TOKEN: XXX-REPLACE-WITH-JENKINS-API-TOKEN-XXX
-  DEPLOY_ROOM: "C096UP7D0"
+  DEPLOY_ROOM_ID: "C096UP7D0"
 
 # Ensures that node_modules directory and any .log files are not uploaded (the
 # other entries are the default values for skip_files). This will skip any Unix

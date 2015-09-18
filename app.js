@@ -46,7 +46,7 @@ import Q from "q";
 // #bot-testing.
 // TODO(benkraft): if Slack ever fixes this issue, switch to using the room
 // name for readability.
-const DEPLOYMENT_ROOM = process.env.DEPLOY_ROOM || "C090KRE5P";
+const DEPLOYMENT_ROOM_ID = process.env.DEPLOY_ROOM_ID || "C090KRE5P";
 
 // Whether to run in DEBUG mode.  In DEBUG mode, culture cow will not
 // actually post commands to Jenkins, nor will it only honor Jenkins
@@ -492,10 +492,10 @@ app.post("/", (req, res) => {
         user: req.body.user_name,
         text: req.body.text.substring(req.body.trigger_word.length).trimLeft()
     };
-    if (message.channel_id !== DEPLOYMENT_ROOM) {
+    if (message.channel_id !== DEPLOYMENT_ROOM_ID) {
         res.json(sunMessage(
             message,
-            `Sorry, I only respond to messages in <#${DEPLOYMENT_ROOM}>!`));
+            `Sorry, I only respond to messages in <#${DEPLOYMENT_ROOM_ID}>!`));
         return;
     }
     for (let [rx, fn] of handlerMap) {
