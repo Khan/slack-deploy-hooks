@@ -363,7 +363,7 @@ function handleAbort(msg, deployState) {
                 replyAsSun(msg, "I think there's currently a deploy-finish job " +
                     "running.  If you need to roll back, you will " +
                     "need to do an emergency rollback (:speech_balloon: " +
-                    "_“sun, emergency rollback”_).  If not, just let it " +
+                    "_“sun: emergency rollback”_).  If not, just let it " +
                     "finish, or <https://jenkins.khanacademy.org/job/" +
                     "deploy-finish/" + runningJob.jobId + "|check what it's" +
                     "doing> yourself.");
@@ -379,7 +379,7 @@ function handleAbort(msg, deployState) {
             replyAsSun(msg, "I don't think there's a deploy going.  If you need " +
                 "to roll back the production servers because you noticed " +
                 "some problems after a deploy finished, :speech_balloon: " +
-                "_“sun, emergency rollback”_.  If you think there's a " +
+                "_“sun: emergency rollback”_.  If you think there's a " +
                 "deploy going, then I'm confused and you'll have to talk " +
                 "to Jenkins yourself.");
         } else {
