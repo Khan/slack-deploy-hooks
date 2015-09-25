@@ -29,13 +29,11 @@ const help_text = `*Commands*
   - \`sun: emergency rollback\` - roll back the production site outside of the deploy process
 `;
 
-import https from "https";
-import querystring from "querystring";
-
 import Slack from "node-slack";
 import express from "express";
 import bodyParser from "body-parser";
 import Q from "q";
+import request from "request";
 
 // The room to listen to deployment commands in.  For safety reasons, culture
 // cow will only listen in this room by default.  This should be a slack
@@ -129,13 +127,37 @@ function wrongPipelineStep(msg, badStep) {
 }
 
 /**
- * Get a promise for a URL or node http options object.
+ * Get a promise for the [response, body] of a request-style options object
+ *
+ * A URL may be passed as the options object in the case of a GET request.
+ * On error, rejects with the error.
  */
-function httpsGet(url) {
+function requestQ(options) {
     const deferred = Q.defer();
-    const req = https.get(url, deferred.resolve);
-    req.on("error", deferred.reject);
+    request(options, (err, resp, body) => {
+        if (err) {
+            deferred.reject(err);
+        } else {
+            deferred.resolve([resp, body]);
+        }
+    });
     return deferred.promise;
+}
+
+/**
+ * Get a promise for the body of a 200 response
+ *
+ * On a non-200 response, rejects with the response.  Otherwise like requestQ.
+ */
+function request200(options) {
+    return requestQ(options).spread((resp, body) => {
+        if (resp.statusCode > 299) {
+            // Q will catch this and reject the promise
+            throw resp;
+        } else {
+            return body;
+        }
+    });
 }
 
 /**
@@ -144,41 +166,31 @@ function httpsGet(url) {
  * Returns a promise for the state.
  */
 function getDeployState() {
-    return httpsGet("https://jenkins.khanacademy.org/deploy-state.json");
+    return requestQ("https://jenkins.khanacademy.org/deploy-state.json");
 }
 
 /**
  * Returns a promise for the current job ID if one is running, or false if not.
  */
 function jenkinsJobStatus(jobName) {
-    return httpsGet({
-        hostname: "jenkins.khanacademy.org",
-        port: 443,
-        path: "/job/" + jobName + "/lastBuild/api/json",
-        auth: "jenkins@khanacademy.org:" + process.env.JENKINS_API_TOKEN
-    }).then(res => {
-        const deferred = Q.defer();
-        if (res.statusCode > 299) {
-            deferred.reject(res);
+    return request200({
+        url: ("https://jenkins.khanacademy.org" +
+              `/job/${jobName}/lastBuild/api/json`),
+        auth: {
+            username: "jenkins@khanacademy.org",
+            password: process.env.JENKINS_API_TOKEN,
+        },
+    }).then(body => {
+        const data = JSON.parse(body);
+        if (data.building === undefined) {
+            throw body;
+        } else if (data.building && !data.number) {
+            throw body;
+        } else if (data.building) {
+            return data.number;
         } else {
-            let data = "";
-            res.on("data", chunk => {
-                data += chunk;
-            });
-            res.on("end", () => {
-                data = JSON.parse(data);
-                if (data.building === undefined) {
-                    deferred.reject(res);
-                } else if (data.building && !data.number) {
-                    deferred.reject(res);
-                } else if (data.building) {
-                    deferred.resolve(data.number);
-                } else {
-                    deferred.resolve(null);
-                }
-            });
+            return null;
         }
-        return deferred.promise;
     });
 }
 
@@ -237,15 +249,14 @@ function cancelJobOnJenkins(msg, jobName, jobId, message) {
 // successful and are now getting redirected to a new page.)
 function runOnJenkins(msg, path, postData, message, allowRedirect) {
     const options = {
-        hostname: "jenkins.khanacademy.org",
-        port: 443,
+        url: "https://jenkins.khanacademy.org" + path,
         method: "POST",
-        path: path,
-        auth: "jenkins@khanacademy.org:" + process.env.JENKINS_API_TOKEN
+        form: postData,
+        auth: {
+            username: "jenkins@khanacademy.org",
+            password: process.env.JENKINS_API_TOKEN,
+        },
     };
-
-    postData = querystring.stringify(postData);
-
     // Tell readers what we're doing.
     replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") + message);
 
@@ -254,20 +265,11 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
         return;
     }
 
-    const req = https.request(options, res => {
-        // Jenkins apparently now sometimes returns 201s for success, so allow
-        // that.  We don't want to allow 3xx because that means that whatever
-        // we were trying to do wasn't done.
+    requestQ(options).then((res, _body) => {
         if ((!allowRedirect && res.statusCode > 299) || res.statusCode > 399) {
             onHttpError(msg, res);
         }
-    });
-
-    // write data to request body
-    req.setHeader("Content-length", postData.length);
-    req.setHeader("Content-Type", "application/x-www-form-urlencoded");
-    req.write(postData);
-    req.end();
+    }).catch(err => onHttpError(msg, err));
 }
 
 
@@ -434,20 +436,14 @@ function handleEmergencyRollback(msg, _deployState) {
 // fn takes a robot object and the deploy state.
 function handleDeploymentMessage(fn, msg) {
     return getDeployState()
-        .then(res => {
-            const deferred = Q.defer();
+        .spread((res, body) => {
             if (res.statusCode === 404) {
-                deferred.resolve({});
+                return {};
             } else if (res.statusCode > 299) {
-                deferred.reject(res);
+                throw res;
             } else {
-                let data = "";
-                res.on("data", chunk => {
-                    data += chunk;
-                });
-                res.on("end", () => deferred.resolve(JSON.parse(data)));
+                return JSON.parse(body);
             }
-            return deferred.promise;
         })
         .then(state => fn(msg, state))
         .catch(err => onHttpError(msg, err));

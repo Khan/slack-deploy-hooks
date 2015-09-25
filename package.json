@@ -15,7 +15,8 @@
     "body-parser": "^1.13",
     "express": "^4.13",
     "node-slack": "0.0.7",
-    "q": "^1.4"
+    "q": "^1.4",
+    "request": "^2.64.0"
   },
   "devDependencies": {
     "eslint": "^1.4"
