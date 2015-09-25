@@ -21,6 +21,8 @@
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
+  - \`sun: queue me\` - add yourself to the deploy queue
+  - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
   - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
@@ -50,6 +52,8 @@ const DEPLOYMENT_ROOM_ID = process.env.DEPLOY_ROOM_ID || "C090KRE5P";
 // state commands that come from the actual Jenkins, allowing for
 // easier debugging
 const DEBUG = !!process.env.SUN_DEBUG;
+
+const TOPIC_REGEX = /^([^|]*) \| \[([^\]]*)\](.*)$/;
 
 /**
  * Generates a Slack message blob, without sending it, with everything
@@ -293,6 +297,69 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
 }
 
 
+/**
+ * Get a promise for the parsed topic of the deployment room.
+ *
+ * The promise will resolve to an object with keys "deployer" (a string
+ * username, or "--" if no one is deploying), "queue" (an array of string
+ * usernames), and "suffix" (a string to be appended to the end of the queue,
+ * such as an extra message), if Sun can parse the topic.
+ *
+ * Rejects the promise if the API request fails or if it can't understand the
+ * topic, and replies with a message to say so.
+ */
+function getTopic(msg) {
+    const params = {channel: DEPLOYMENT_ROOM_ID};
+    return slackAPI("channels.info", params).then(info => {
+        const topic = info.channel.topic.value;
+        const matches = topic.match(TOPIC_REGEX);
+        if (!matches) {
+            replyAsSun(msg, ":confounded: I can't understand the topic. " +
+                       "You'll have to do it yourself.");
+            throw topic;
+        } else {
+            const people = matches[2]
+                .split(",")
+                .map(person => person.trim())
+                .filter(person => person);
+            const topicObj = {
+                deployer: matches[1],
+                queue: people,
+                suffix: matches[3],
+            };
+            return topicObj;
+        }
+    });
+}
+
+
+/**
+ * Set the topic of the deployment room.
+ *
+ * Accepts a topic of the form returned by getTopic().  If setting the topic
+ * fails, replies to Slack to say so.
+ *
+ * Returns a promise for being done.
+ */
+function setTopic(msg, topic) {
+    const listOfPeople = topic.queue.join(", ");
+    const deployer = topic.deployer || "--";
+    const newTopic = `${deployer} | [${listOfPeople}]${topic.suffix}`;
+    return slackAPI("channels.setTopic", {
+        channel: DEPLOYMENT_ROOM_ID,
+        topic: newTopic,
+    }).catch(err => {
+        console.log(err);
+        if (err.stack) {
+            // if `err` is actually a JS error, try to log something useful.
+            console.log(err.stack);
+        }
+        replyAsSun(msg, ":confounded: Slack won't listen to me. " +
+                   "You'll have to do it yourself.");
+        throw err;
+    });
+}
+
 
 function handleHelp(msg, _deployState) {
     replyAsSun(msg, help_text);
@@ -319,6 +386,35 @@ function handleState(msg, deployState) {
 function handlePodBayDoors(msg, _deployState) {
     wrongPipelineStep(msg, "open the pod bay doors");
 }
+
+function handleQueueMe(msg, _deployState) {
+    return getTopic(msg).then(topic => {
+        topic.queue.push(msg.user);
+        return setTopic(msg, topic);
+    });
+}
+
+
+function handleQueueNext(msg, _deployState) {
+    return getTopic(msg).then(topic => {
+        const newDeployer = topic.queue[0];
+        const newTopic = {
+            deployer: newDeployer,
+            queue: topic.queue.slice(1),
+            suffix: topic.suffix
+        };
+        // Wait for the topic change to complete, then pass down the new
+        // deployer.
+        return setTopic(msg, newTopic).then(_ => newDeployer);
+    }).then(newDeployer => {
+        if (!newDeployer) {
+            replyAsSun(msg, "Okay.  Anybody else want to deploy?");
+        } else {
+            replyAsSun(msg, `Okay, now it's <@${newDeployer}>'s turn!`);
+        }
+    });
+}
+
 
 function handleMakeCheck(msg, _deployState) {
     jenkinsJobStatus("make-check").then(runningJob => {
@@ -478,6 +574,10 @@ const handlerMap = new Map([
     [/^state$/i, handleState],
     // Attempt to open the pod bay doors
     [/^open the pod bay doors/i, handlePodBayDoors],
+    // Add the sender to the deploy queue
+    [/^(?:en)?queue/i, handleQueueMe],
+    // Add the sender to the deploy queue
+    [/^(?:up )?next/i, handleQueueNext],
     // Run tests on a branch outside the deploy process
     [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
     // Begin the deployment process for the specified branch
