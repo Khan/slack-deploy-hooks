@@ -3,4 +3,5 @@ npm-debug.log
 node_modules
 .jenkins_api_token
 .slack_webhook_url
+.slack_bot_token
 .slack_verification_token

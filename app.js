@@ -9,8 +9,8 @@
  *   The JENKINS_API_TOKEN environment variables must be set.
  *   The SUN_DEBUG flag can be set if you want to debug this
  *     module without risking talking to Jenkins.
- *   The SLACK_WEBHOOK_URL variable should be set to the Slack *Incoming*
- *     Webhook URL.
+ *   The SLACK_BOT_TOKEN variable should be set to the Slack bot user's token,
+ *     which will be used to send messages and make API calls.
  *   The SLACK_VERIFICATION_TOKEN variable should be set to the verification
  *     token Slack uses for this web service. (For testing, as long you keep
  *     it blank, it's fine.)
@@ -29,7 +29,6 @@ const help_text = `*Commands*
   - \`sun: emergency rollback\` - roll back the production site outside of the deploy process
 `;
 
-import Slack from "node-slack";
 import express from "express";
 import bodyParser from "body-parser";
 import Q from "q";
@@ -51,9 +50,6 @@ const DEPLOYMENT_ROOM_ID = process.env.DEPLOY_ROOM_ID || "C090KRE5P";
 // state commands that come from the actual Jenkins, allowing for
 // easier debugging
 const DEBUG = !!process.env.SUN_DEBUG;
-
-// The Slack singleton
-const slack = new Slack(process.env.SLACK_WEBHOOK_URL);
 
 /**
  * Generates a Slack message blob, without sending it, with everything
@@ -84,7 +80,9 @@ function replyAsSun(msg, reply) {
     if (DEBUG) {
         console.log(`Sending: "${reply}"`);
     }
-    slack.send(sunMessage(msg, reply));
+    // TODO(benkraft): more usefully handle any errors we get from this.
+    // Except it's not clear what to do if posting to slack fails.
+    slackAPI("chat.postMessage", sunMessage(msg, reply)).catch(console.log);
 }
 
 
@@ -124,6 +122,28 @@ function wrongPipelineStep(msg, badStep) {
     replyAsSun(msg, `:hal9000: I'm sorry, @${msg.user}.  I'm ` +
         "afraid I can't let you do that.  (It's not time to " +
         `${badStep}.  If you disagree, bring it up with Jenkins.)`);
+}
+
+/**
+ * Make a request to the given Slack API call with the given params object
+ *
+ * Returns a promise for an object (decoded from the response JSON).
+ */
+function slackAPI(call, params) {
+    params.token = process.env.SLACK_BOT_TOKEN;
+    const options = {
+        url: `https://slack.com/api/${call}`,
+        // Slack always accepts both GET and POST, but using GET for things
+        // that modify data is questionable.
+        method: "POST",
+        form: params,
+    };
+    return request200(options).then(JSON.parse).then(data => {
+        if (!data.ok) {
+            throw data;
+        }
+        return data;
+    });
 }
 
 /**

@@ -16,9 +16,9 @@ APPFILE_TEMPLATE = 'app.template.yaml'
 # String to replace with the new version stamp
 VERSION_REPLACEMENT = 'XXX-REPLACE-WITH-NEW-VERSION-XXX'
 # String to replace with the Slack webhook URL
-SLACK_WEBHOOK_URL_REPLACEMENT = 'XXX-REPLACE-WITH-SLACK-WEBHOOK-URL-XXX'
+SLACK_BOT_TOKEN_REPLACEMENT = 'XXX-REPLACE-WITH-SLACK-BOT-TOKEN-XXX'
 # Path to file containing the Slack Webhoook URL to use
-SLACK_WEBHOOK_URL_FILE = '.slack_webhook_url'
+SLACK_BOT_TOKEN_FILE = '.slack_bot_token'
 # String to replace with the Slack verification token
 SLACK_VERIFICATION_TOKEN_REPLACEMENT =\
     'XXX-REPLACE-WITH-SLACK-VERIFICATION-TOKEN-XXX'
@@ -40,10 +40,10 @@ def get_secret(filename, passphrase_id):
     return open(filename).read().strip()
 
 
-def build_appfile(slack_webhook_url, slack_verification_token, jenkins_api_token):
+def build_appfile(slack_bot_token, slack_verification_token, jenkins_api_token):
     """Build app.yaml from the template inserting necessary secrets."""
     template = open(APPFILE_TEMPLATE, 'rb').read()
-    template = template.replace(SLACK_WEBHOOK_URL_REPLACEMENT, slack_webhook_url)
+    template = template.replace(SLACK_BOT_TOKEN_REPLACEMENT, slack_bot_token)
     template = template.replace(SLACK_VERIFICATION_TOKEN_REPLACEMENT, slack_verification_token)
     template = template.replace(JENKINS_API_REPLACEMENT, jenkins_api_token)
     with open('app.yaml', 'w') as appfile:
@@ -51,10 +51,10 @@ def build_appfile(slack_webhook_url, slack_verification_token, jenkins_api_token
 
 
 def main():
-    slack_webhook_url = get_secret(SLACK_WEBHOOK_URL_FILE, "K95")
+    slack_bot_token = get_secret(SLACK_BOT_TOKEN_FILE, "K99")
     slack_verification_token = get_secret(SLACK_VERIFICATION_TOKEN_FILE, "K96")
     jenkins_api_token = get_secret(JENKINS_API_TOKEN_FILE, "K92")
-    build_appfile(slack_webhook_url,
+    build_appfile(slack_bot_token,
                   slack_verification_token,
                   jenkins_api_token)
 
