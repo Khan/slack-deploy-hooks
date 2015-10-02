@@ -395,11 +395,15 @@ function handlePodBayDoors(msg, _deployState) {
 
 function handleQueueMe(msg, _deployState) {
     return getTopic(msg).then(topic => {
-        topic.queue.push(msg.user);
-        return setTopic(msg, topic);
+        if (topic.queue.length === 0 && topic.deployer === undefined) {
+            topic.deployer = msg.user;
+            return setTopic(msg, topic);
+        } else {
+            topic.queue.push(msg.user);
+            return setTopic(msg, topic);
+        }
     });
 }
-
 
 function handleQueueNext(msg, _deployState) {
     return getTopic(msg).then(topic => {
