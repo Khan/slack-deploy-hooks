@@ -53,7 +53,9 @@ const DEPLOYMENT_ROOM_ID = process.env.DEPLOY_ROOM_ID || "C090KRE5P";
 // easier debugging
 const DEBUG = !!process.env.SUN_DEBUG;
 
-const TOPIC_REGEX = /^([^|]*) \| \[([^\]]*)\](.*)$/;
+const TOPIC_REGEX = /^([^|]*) ?\| ?\[([^\]]*)\](.*)$/;
+// Any number of hyphens, en dashes, and em dashes.
+const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 
 /**
  * Generates a Slack message blob, without sending it, with everything
@@ -301,7 +303,7 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
  * Get a promise for the parsed topic of the deployment room.
  *
  * The promise will resolve to an object with keys "deployer" (a string
- * username, or "--" if no one is deploying), "queue" (an array of string
+ * username, or null if no one is deploying), "queue" (an array of string
  * usernames), and "suffix" (a string to be appended to the end of the queue,
  * such as an extra message), if Sun can parse the topic.
  *
@@ -322,8 +324,12 @@ function getTopic(msg) {
                 .split(",")
                 .map(person => person.trim())
                 .filter(person => person);
+            let deployer = matches[1].trim();
+            if (deployer.match(NO_DEPLOYER_REGEX)) {
+                deployer = null;
+            }
             const topicObj = {
-                deployer: matches[1],
+                deployer: deployer,
                 queue: people,
                 suffix: matches[3],
             };
