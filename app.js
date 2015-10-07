@@ -57,6 +57,18 @@ const TOPIC_REGEX = /^([^|]*) ?\| ?\[([^\]]*)\](.*)$/;
 // Any number of hyphens, en dashes, and em dashes.
 const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 
+
+/**
+ * An error that will be reported back to the user.
+ */
+class SunError {
+    constructor(msg, name) {
+        this.message = msg;
+        this.name = "SunError";
+    }
+}
+
+
 /**
  * Generates a Slack message blob, without sending it, with everything
  * prepopulated. Useful for when you need to return a message to slack through
@@ -88,32 +100,63 @@ function replyAsSun(msg, reply) {
     }
     // TODO(benkraft): more usefully handle any errors we get from this.
     // Except it's not clear what to do if posting to slack fails.
-    slackAPI("chat.postMessage", sunMessage(msg, reply)).catch(console.log);
+    slackAPI("chat.postMessage", sunMessage(msg, reply)).catch(console.error);
 }
 
 
-function onHttpError(msg, res) {
-    const errorMessage = ("Jenkins won't listen to me.  " +
-    "Go talk to it yourself.");
-    // The error message usually comes after another message.
-    // Wait a second to encourage to put the messages in the
-    // right order.
-    setTimeout(() => replyAsSun(msg, errorMessage), 1000);
-
-    // Also log the error to /var/log/upstart/culture-cow.*.  (Recipe from
-    // http://nodejs.org/api/http.html#http_http_request_options_callback).
-    if (res.statusCode) {
-        console.error("ERROR TALKING TO JENKINS:");
-        console.error("   Status: " + res.statusCode);
-        console.error("   Headers: " + JSON.stringify(res.headers));
-        res.setEncoding("utf8");
-        res.on("data", chunk => {
-            console.error("   Body: " + chunk);
-        });
-    } else {
-        console.error(res.stack);
-        console.error(res);
+/**
+ * Try to write a useful log for various types of HTTP errors.
+ *
+ * err should be the exception or an HTTP response.  body should be the decoded
+ * response body, if there is one.
+ *
+ * This only logs the error; after calling it you should throw a SunError with
+ * a user-friendly message.
+ */
+function logHttpError(err, body) {
+    console.error("HTTP Error");
+    console.error(`    Error: ${err}`);
+    if (err.stack) {
+        console.error(`    Stack: ${err.stack}`);
     }
+    if (err.statusCode) {
+        console.error(`    Status: ${err.statusCode}`);
+    }
+    if (err.headers) {
+        const headers = JSON.stringify(err.headers);
+        console.error(`    Headers: ${headers}`);
+    }
+    if (body) {
+        console.error(`    Body: ${body}`);
+    }
+}
+
+
+/**
+ * Report an error back to the user.
+ *
+ * If it's a SunError, or otherwise has a `message` attribute, just use that;
+ * otherwise send a general failure message.  If the thrower can log anything
+ * about the error, they should, since they have more information about what's
+ * going on and why.  Either way, we'll try our best to log it too.
+ */
+function onError(msg, err) {
+    console.error("ERROR");
+    console.error(`    Error: ${err}`);
+    if (err.stack) {
+        console.error(`    Stack: ${err.stack}`);
+    }
+    let errorMessage;
+    if (err.message) {
+        errorMessage = err.message;
+    } else {
+        errorMessage = ("Something went wrong and I won't know what to " +
+                        "do!  Try doing things yourself, or check my " +
+                        "logs.");
+    }
+    // The error message may come after another message.  Wait a second to
+    // encourage to put the messages in the right order.
+    setTimeout(() => replyAsSun(msg, errorMessage), 1000);
 }
 
 /**
@@ -146,7 +189,9 @@ function slackAPI(call, params) {
     };
     return request200(options).then(JSON.parse).then(data => {
         if (!data.ok) {
-            throw data;
+            throw new SunError("Slack won't listen to me!  " +
+                               `It said \`${data.error}\` when I tried to ` +
+                               `\`${call}\`.`);
         }
         return data;
     });
@@ -156,12 +201,14 @@ function slackAPI(call, params) {
  * Get a promise for the [response, body] of a request-style options object
  *
  * A URL may be passed as the options object in the case of a GET request.
- * On error, rejects with the error.
+ * On error, rejects with the error, and logs it, but does not report back to
+ * the user.
  */
 function requestQ(options) {
     const deferred = Q.defer();
     request(options, (err, resp, body) => {
         if (err) {
+            logHttpError(err, body);
             deferred.reject(err);
         } else {
             deferred.resolve([resp, body]);
@@ -173,11 +220,13 @@ function requestQ(options) {
 /**
  * Get a promise for the body of a 200 response
  *
- * On a non-200 response, rejects with the response.  Otherwise like requestQ.
+ * On a non-200 response, rejects with the response and logs the error.
+ * Otherwise like requestQ.
  */
 function request200(options) {
     return requestQ(options).spread((resp, body) => {
         if (resp.statusCode > 299) {
+            logHttpError(resp, body);
             // Q will catch this and reject the promise
             throw resp;
         } else {
@@ -208,15 +257,21 @@ function jenkinsJobStatus(jobName) {
         },
     }).then(body => {
         const data = JSON.parse(body);
-        if (data.building === undefined) {
-            throw body;
-        } else if (data.building && !data.number) {
+        if (data.building === undefined || 
+                (data.building && !data.number)) {
+            console.error("No build status found!");
+            console.error(`    API response: ${body}`);
             throw body;
         } else if (data.building) {
             return data.number;
         } else {
             return null;
         }
+    }).catch(_err => {
+        // Replace the error (which has already been logged) with a more
+        // user-friendly one.
+        throw new SunError("Jenkins won't tell me what's running!  " +
+                           "You'll have to talk to it yourself.");
     });
 }
 
@@ -291,11 +346,17 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
         return;
     }
 
-    requestQ(options).then((res, _body) => {
+    requestQ(options).then((res, body) => {
         if ((!allowRedirect && res.statusCode > 299) || res.statusCode > 399) {
-            onHttpError(msg, res);
+            logHttpError(res, body);
+            throw res;
         }
-    }).catch(err => onHttpError(msg, err));
+    }).catch(_err => {
+        // Replace the error (which has already been logged) with a more
+        // user-friendly one.
+        throw new SunError("Jenkins won't listen to me!  You'll have to " +
+                           "talk to it yourself.");
+    });
 }
 
 
@@ -310,15 +371,15 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
  * Rejects the promise if the API request fails or if it can't understand the
  * topic, and replies with a message to say so.
  */
-function getTopic(msg) {
+function getTopic(_msg) {
     const params = {channel: DEPLOYMENT_ROOM_ID};
     return slackAPI("channels.info", params).then(info => {
         const topic = info.channel.topic.value;
         const matches = topic.match(TOPIC_REGEX);
         if (!matches) {
-            replyAsSun(msg, ":confounded: I can't understand the topic. " +
-                       "You'll have to do it yourself.");
-            throw topic;
+            console.error(`Error parsing topic: ${topic}`);
+            throw new SunError(":confounded: I can't understand the topic.  " +
+                               "You'll have to do it yourself.");
         } else {
             const people = matches[2]
                 .split(",")
@@ -354,15 +415,6 @@ function setTopic(msg, topic) {
     return slackAPI("channels.setTopic", {
         channel: DEPLOYMENT_ROOM_ID,
         topic: newTopic,
-    }).catch(err => {
-        console.log(err);
-        if (err.stack) {
-            // if `err` is actually a JS error, try to log something useful.
-            console.log(err.stack);
-        }
-        replyAsSun(msg, ":confounded: Slack won't listen to me. " +
-                   "You'll have to do it yourself.");
-        throw err;
     });
 }
 
@@ -378,14 +430,10 @@ function handlePing(msg, _deployState) {
 
 function handleState(msg, deployState) {
     const prettyState = JSON.stringify(deployState, null, 2);
-    getRunningJob().then(job => {
+    return getRunningJob().then(job => {
         const prettyRunningJob = JSON.stringify(job, null, 2);
         replyAsSun(msg, "Here's the state of the deploy: ```" +
             `\n${prettyRunningJob}\n\n${prettyState}\n` + "```");
-    })
-    .catch(err => {
-        // If anywhere along the line we got an error, say so.
-        onHttpError(msg, err);
     });
 }
 
@@ -532,11 +580,7 @@ function handleAbort(msg, deployState) {
             runJobOnJenkins(msg, "deploy-finish", postData,
                 "Telling Jenkins to " + response + " this deploy.");
         }
-    })
-        .catch(err => {
-            // If anywhere along the line we got an error, say so.
-            onHttpError(msg, err);
-        });
+    });
 }
 
 function handleFinish(msg, deployState) {
@@ -559,20 +603,21 @@ function handleEmergencyRollback(msg, _deployState) {
         "version");
 }
 
-// fn takes a robot object and the deploy state.
+// fn takes a message object and the deploy state.
 function handleDeploymentMessage(fn, msg) {
     return getDeployState()
         .spread((res, body) => {
             if (res.statusCode === 404) {
                 return {};
             } else if (res.statusCode > 299) {
-                throw res;
+                logHttpError(res, body);
+                throw new SunError("Jenkins won't tell me what's going on.  " +
+                                   "You'll have to try it yourself.");
             } else {
                 return JSON.parse(body);
             }
         })
-        .then(state => fn(msg, state))
-        .catch(err => onHttpError(msg, err));
+        .then(state => fn(msg, state));
 }
 
 const handlerMap = new Map([
@@ -629,13 +674,11 @@ app.post("/", (req, res) => {
         if (match !== null) {
             message.match = match;
             handleDeploymentMessage(fn, message)
-            .then(() => res.send({}))
-            .catch(err => res.send(`Badness: ${err}`));
+            .catch(err => onError(message, err))
+            .then(() => res.send({}));
             return;
         }
     }
-    res.json(sunMessage(
-        message, `Sorry, I don't know how to “_${message.text}_”!`));
 });
 
 const server = app.listen(process.env.PORT || "8080", "0.0.0.0", () => {
