@@ -395,7 +395,7 @@ function handlePodBayDoors(msg, _deployState) {
 
 function handleQueueMe(msg, _deployState) {
     return getTopic(msg).then(topic => {
-        if (topic.queue.length === 0 && topic.deployer === undefined) {
+        if (topic.queue.length === 0 && topic.deployer === null) {
             topic.deployer = msg.user;
             return setTopic(msg, topic);
         } else {
