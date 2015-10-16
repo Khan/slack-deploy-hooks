@@ -53,7 +53,10 @@ const DEPLOYMENT_ROOM_ID = process.env.DEPLOY_ROOM_ID || "C090KRE5P";
 // easier debugging
 const DEBUG = !!process.env.SUN_DEBUG;
 
+// deployer | [deployer1, deployer2] | optional extra message
 const TOPIC_REGEX = /^([^|]*) ?\| ?\[([^\]]*)\](.*)$/;
+// person1 + person2 + person3 (optional notes on deploy)
+const DEPLOYER_REGEX = /^([^(]*)(?:\((.*)\))?$/;
 // Any number of hyphens, en dashes, and em dashes.
 const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 
@@ -361,12 +364,59 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
 
 
 /**
+ * Parse a deployer from the topic into an object.
+ *
+ * Returns null if there is no deployer (i.e. an empty string or series of
+ * dashes), a string, if we couldn't parse the deployer, or an object
+ * with the key "usernames" (an array of strings), and optionally also have the
+ * key "note" (a string, such as "znd" or a branch name).
+ */
+function parseDeployer(deployerString) {
+    const trimmed = deployerString.trim();
+    if (!trimmed || trimmed.match(NO_DEPLOYER_REGEX)) {
+        return null;
+    }
+    const matches = trimmed.match(DEPLOYER_REGEX);
+    if (!matches) {
+        return trimmed;
+    }
+    return {
+        usernames: matches[1].split("+").map(username => username.trim()),
+        note: matches[2],
+    };
+}
+
+
+/**
+ * Turn a deployer object back into a string.
+ *
+ * Takes a deployer such as that returned by parseDeployer, and returns it as a
+ * string.
+ */
+function stringifyDeployer(deployer) {
+    if (!deployer) {
+        // an em dash
+        return "—";
+    } else if (!deployer.usernames) {
+        return deployer;
+    } else {
+        let suffix = "";
+        if (deployer.note) {
+            suffix = ` (${deployer.note})`;
+        }
+        const listOfUsernames = deployer.usernames.join(" + ");
+        return listOfUsernames + suffix;
+    }
+}
+
+
+/**
  * Get a promise for the parsed topic of the deployment room.
  *
- * The promise will resolve to an object with keys "deployer" (a string
- * username, or null if no one is deploying), "queue" (an array of string
- * usernames), and "suffix" (a string to be appended to the end of the queue,
- * such as an extra message), if Sun can parse the topic.
+ * The promise will resolve to an object with keys "deployer" (a deployer (as
+ * output by parseDeployer), or null if no one is deploying), "queue" (an array
+ * of deployers), and "suffix" (a string to be appended to the end of the
+ * queue, such as an extra message), if Sun can parse the topic.
  *
  * Rejects the promise if the API request fails or if it can't understand the
  * topic, and replies with a message to say so.
@@ -383,14 +433,10 @@ function getTopic(_msg) {
         } else {
             const people = matches[2]
                 .split(",")
-                .map(person => person.trim())
+                .map(parseDeployer)
                 .filter(person => person);
-            let deployer = matches[1].trim();
-            if (deployer.match(NO_DEPLOYER_REGEX)) {
-                deployer = null;
-            }
             const topicObj = {
-                deployer: deployer,
+                deployer: parseDeployer(matches[1]),
                 queue: people,
                 suffix: matches[3],
             };
@@ -409,8 +455,8 @@ function getTopic(_msg) {
  * Returns a promise for being done.
  */
 function setTopic(msg, topic) {
-    const listOfPeople = topic.queue.join(", ");
-    const deployer = topic.deployer || "--";
+    const listOfPeople = topic.queue.map(stringifyDeployer).join(", ");
+    const deployer = stringifyDeployer(topic.deployer);
     const newTopic = `${deployer} | [${listOfPeople}]${topic.suffix}`;
     return slackAPI("channels.setTopic", {
         channel: DEPLOYMENT_ROOM_ID,
@@ -468,7 +514,17 @@ function handleQueueNext(msg, _deployState) {
         if (!newDeployer) {
             replyAsSun(msg, "Okay.  Anybody else want to deploy?");
         } else {
-            replyAsSun(msg, `Okay, now it's <@${newDeployer}>'s turn!`);
+            let mentions;
+            // newDeployer will be either an object with a username key, or a
+            // string which we couldn't parse.
+            if (newDeployer.usernames) {
+                mentions = newDeployer.usernames
+                    .map(username => `<@${username}>`)
+                    .join(" ");
+            } else {
+                mentions = newDeployer;
+            }
+            replyAsSun(msg, `Okay, ${mentions} it's your turn!`);
         }
     });
 }
