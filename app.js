@@ -21,7 +21,7 @@
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
-  - \`sun: queue me\` - add yourself to the deploy queue
+  - \`sun: queue [user]\` - add someone to the deploy queue (user is "me" or of the form \`user1 + user2 (optional note)\`)
   - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
   - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
@@ -488,12 +488,17 @@ function handlePodBayDoors(msg, _deployState) {
 }
 
 function handleQueueMe(msg, _deployState) {
+    let user = msg.user;
+    const arg = msg.match[1].trim();
+    if (arg && arg !== "me") {
+        user = arg;
+    }
     return getTopic(msg).then(topic => {
         if (topic.queue.length === 0 && topic.deployer === null) {
-            topic.deployer = msg.user;
+            topic.deployer = user;
             return setTopic(msg, topic);
         } else {
-            topic.queue.push(msg.user);
+            topic.queue.push(user);
             return setTopic(msg, topic);
         }
     });
@@ -686,7 +691,7 @@ const handlerMap = new Map([
     // Attempt to open the pod bay doors
     [/^open the pod bay doors/i, handlePodBayDoors],
     // Add the sender to the deploy queue
-    [/^(?:en)?queue/i, handleQueueMe],
+    [/^(?:en)?queue\s*(.*)$/i, handleQueueMe],
     // Add the sender to the deploy queue
     [/^(?:up )?next/i, handleQueueNext],
     // Run tests on a branch outside the deploy process
