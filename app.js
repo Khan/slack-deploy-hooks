@@ -65,7 +65,7 @@ const NO_DEPLOYER_REGEX = /^[-–—]*$/;
  * An error that will be reported back to the user.
  */
 class SunError {
-    constructor(msg, name) {
+    constructor(msg) {
         this.message = msg;
         this.name = "SunError";
     }
