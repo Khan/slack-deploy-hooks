@@ -365,11 +365,13 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
 
 /**
  * Parse a deployer from the topic into an object.
- *
- * Returns null if there is no deployer (i.e. an empty string or series of
- * dashes), a string, if we couldn't parse the deployer, or an object
- * with the key "usernames" (an array of strings), and optionally also have the
- * key "note" (a string, such as "znd" or a branch name).
+ * 
+ * @param string deployerString The deployer string to be parsed.
+ * 
+ * @return {?string|{usernames: Array.<string>, note: (undefined|string)}} The
+ *     parsed deployer.  null if there is no deployer (i.e. an empty string or
+ *     series of dashes.  A string if we couldn't parse the deployer.  An
+ *     object if we could.
  */
 function parseDeployer(deployerString) {
     const trimmed = deployerString.trim();
@@ -390,8 +392,10 @@ function parseDeployer(deployerString) {
 /**
  * Turn a deployer object back into a string.
  *
- * Takes a deployer such as that returned by parseDeployer, and returns it as a
- * string.
+ * @param {?string|{usernames: Array.<string>, note: (undefined|string)}}
+ *     deployer A deployer such as that returned by parseDeployer.
+ *
+ * @return string
  */
 function stringifyDeployer(deployer) {
     if (!deployer) {
