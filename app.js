@@ -581,7 +581,7 @@ function handleDeploy(msg, deployState) {
 }
 
 function handleSetDefault(msg, deployState) {
-    if (!pipelineStepIsValid(deployState, "set-default")) {
+    if (!pipelineStepIsValid(deployState, "set-default-start")) {
         wrongPipelineStep(msg, "set-default");
         return;
     }
@@ -631,7 +631,7 @@ function handleAbort(msg, deployState) {
                 "WHY": "aborted"
             };
             let response;
-            if (pipelineStepIsValid(deployState, "set-default")) {
+            if (pipelineStepIsValid(deployState, "set-default-start")) {
                 // If no build is running, and we could set default, we can just as
                 // easily just give up
                 postData.STATUS = "failure";
