@@ -709,6 +709,7 @@ const handlerMap = new Map([
     // Mark the version currently testing as default as good and mark the
     // deploy as done
     [/^finish.*$/i, handleFinish],
+    [/^yolo.*$/i, handleFinish],
     // Roll back production to the previous version after set default
     [/^emergency rollback.*$/i, handleEmergencyRollback],
     // Catch-all: if we didn't get a valid command, send the help message.
