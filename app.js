@@ -23,6 +23,7 @@ const help_text = `*Commands*
   - \`sun: help\` - show the help text
   - \`sun: queue [user]\` - add someone to the deploy queue (user is "me" or of the form \`user1 + user2 (optional note)\`)
   - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
+  - \`sun: remove [user]\` - remove someone from the deploy queue (user is "me" or a username)
   - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
@@ -539,6 +540,22 @@ function handleQueueNext(msg, _deployState) {
 }
 
 
+function handleRemoveMe(msg, _deployState) {
+    let user = msg.user;
+    const arg = msg.match[1].trim();
+    if (arg && arg !== "me") {
+        user = arg;
+    }
+    return getTopic(msg).then(topic => {
+        topic.queue = topic.queue.filter(
+            deploy => !deploy.usernames.includes(user));
+        // TODO(benkraft): if the removed user is deploying, do an `up next` as
+        // well.
+        return setTopic(msg, topic);
+    });
+}
+
+
 function handleMakeCheck(msg, _deployState) {
     jenkinsJobStatus("make-check").then(runningJob => {
         if (runningJob) {
@@ -696,8 +713,10 @@ const handlerMap = new Map([
     [/^open the pod bay doors/i, handlePodBayDoors],
     // Add the sender to the deploy queue
     [/^(?:en)?queue\s*(.*)$/i, handleQueueMe],
-    // Add the sender to the deploy queue
+    // Move on to the next deployer
     [/^(?:up )?next/i, handleQueueNext],
+    // Remove the sender from the deploy queue
+    [/^(?:remove|dequeue)\s*(.*)$/i, handleRemoveMe],
     // Run tests on a branch outside the deploy process
     [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
     // Begin the deployment process for the specified branch
