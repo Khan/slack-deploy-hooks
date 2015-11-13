@@ -478,6 +478,9 @@ function handlePing(msg, _deployState) {
     replyAsSun(msg, "I AM THE MONKEY KING!");
 }
 
+function handleFingersCrossed(msg, _deployState) {
+    replyAsSun(msg, "Okay, I've crossed my fingers.  :fingerscrossed:");
+}
 
 function handleState(msg, deployState) {
     const prettyState = JSON.stringify(deployState, null, 2);
@@ -707,6 +710,8 @@ const handlerMap = new Map([
     [/^help$/i, handleHelp],
     // Return ping and verify you're in the right room
     [/^ping$/i, handlePing],
+    // Return the dump of the JSON state
+    [/^(cross (your )?fingers|fingers crossed).*$/i, handleFingersCrossed],
     // Return the dump of the JSON state
     [/^state$/i, handleState],
     // Attempt to open the pod bay doors
