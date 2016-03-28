@@ -168,7 +168,8 @@ function onError(msg, err) {
  */
 function pipelineStepIsValid(deployState, step) {
     return (deployState.POSSIBLE_NEXT_STEPS &&
-    deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1);
+            (deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1 ||
+             deployState.POSSIBLE_NEXT_STEPS.indexOf('<all>') !== -1));
 }
 
 function wrongPipelineStep(msg, badStep) {
