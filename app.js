@@ -430,7 +430,14 @@ function stringifyDeployer(deployer) {
 function getTopic(_msg) {
     const params = {channel: DEPLOYMENT_ROOM_ID};
     return slackAPI("channels.info", params).then(info => {
-        const topic = info.channel.topic.value;
+        let topic = info.channel.topic.value;
+        // Slack for some reason escapes &, <, and > using HTML escapes, which
+        // is just plain incorrect, but we'll handle it.  Since these seem to
+        // be the only escapes it uses, we won't bother to do something
+        // fancier.
+        topic = topic.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&amp;", "&");
         const matches = topic.match(TOPIC_REGEX);
         if (!matches) {
             console.error(`Error parsing topic: ${topic}`);
