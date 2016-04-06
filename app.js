@@ -385,7 +385,8 @@ function parseDeployer(deployerString) {
         return trimmed;
     }
     return {
-        usernames: matches[1].split("+").map(username => username.trim()),
+        usernames: matches[1].split("+")
+            .map(username => unobfuscateUsername(username.trim())),
         note: matches[2],
     };
 }
@@ -410,9 +411,43 @@ function stringifyDeployer(deployer) {
         if (deployer.note) {
             suffix = ` (${deployer.note})`;
         }
-        const listOfUsernames = deployer.usernames.join(" + ");
+        const listOfUsernames = deployer.usernames
+            .map(obfuscateUsername)
+            .join(" + ");
         return listOfUsernames + suffix;
     }
+}
+
+
+/**
+ * Obfuscate a username so it won't generate an at-mention
+ *
+ * Every time a room topic gets updated, everyone listed in the topic gets an
+ * at-mention.  That's kind of annoying, so we stick zero-width spaces in
+ * the usernames to avoid it.
+ *
+ * @param string username The username
+ *
+ * @return string The username, but with less at-mention.
+ */
+function obfuscateUsername(username) {
+    // We use U+200C ZERO-WIDTH NON-JOINER because it doesn't count as a
+    // word-break, making it easier to still highlight and delete your whole
+    // name.
+    return `${username[0]}\u200c${username.slice(1)}`;
+}
+
+/**
+ * Unobfuscate a username
+ *
+ * Undo the transformation done by obfuscateUsername.
+ *
+ * @param string username The username
+ *
+ * @return string The username, but with more at-mention.
+ */
+function unobfuscateUsername(username) {
+    return username.replace("\u200c", "");
 }
 
 
@@ -514,7 +549,7 @@ function handleQueueMe(msg, _deployState) {
             topic.deployer = user;
             return setTopic(msg, topic);
         } else {
-            topic.queue.push(user);
+            topic.queue.push(obfuscateUsername(user));
             return setTopic(msg, topic);
         }
     });
