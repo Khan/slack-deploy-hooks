@@ -589,6 +589,7 @@ function handleQueueNext(msg, _deployState) {
     // TODO(csilvers): complain if they do 'next' after the happy dance,
     // since we do that automatically now.
     doQueueNext(msg, _deployState);
+}
 
 
 function handleRemoveMe(msg, _deployState) {
