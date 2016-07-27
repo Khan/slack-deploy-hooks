@@ -555,7 +555,7 @@ function handleQueueMe(msg, _deployState) {
     });
 }
 
-function handleQueueNext(msg, _deployState) {
+function doQueueNext(msg, _deployState) {
     return getTopic(msg).then(topic => {
         const newDeployer = topic.queue[0];
         const newTopic = {
@@ -580,10 +580,15 @@ function handleQueueNext(msg, _deployState) {
             } else {
                 mentions = newDeployer;
             }
-            replyAsSun(msg, `Okay, ${mentions} it's your turn!`);
+            replyAsSun(msg, `Okay, ${mentions} it is your turn!`);
         }
     });
 }
+
+function handleQueueNext(msg, _deployState) {
+    // TODO(csilvers): complain if they do 'next' after the happy dance,
+    // since we do that automatically now.
+    doQueueNext(msg, _deployState);
 
 
 function handleRemoveMe(msg, _deployState) {
@@ -722,6 +727,10 @@ function handleFinish(msg, deployState) {
     };
     runJobOnJenkins(msg, "deploy-finish", postData,
         "Telling Jenkins to finish this deploy!");
+
+    // Let's also move to the next person.
+    // TODO(csilvers): wait until the 'happy dance' message shows up first.
+    doQueueNext(msg, deployState);
 }
 
 function handleEmergencyRollback(msg, _deployState) {
