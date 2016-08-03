@@ -9,7 +9,7 @@
     "monitor": "nodemon --exec npm run start -- app.js",
     "predeploy": "build-scripts/predeploy",
     "lint": "eslint --fix *.js",
-    "deploy": "npm run predeploy && gcloud preview app deploy app.yaml --project khan-sun"
+    "deploy": "npm run predeploy && gcloud app deploy app.yaml --project khan-sun"
   },
   "dependencies": {
     "babel": "^5.8",
