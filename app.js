@@ -610,21 +610,19 @@ function handleRemoveMe(msg, _deployState) {
 
 function handleMakeCheck(msg, _deployState) {
     jenkinsJobStatus("make-check").then(runningJob => {
-        if (runningJob) {
-            replyAsSun(msg, "I think a make-check is already running. " +
-                       "If you disagree, or want to queue another, " +
-                       "take it up with Jenkins.");
-        } else {
-            const deployBranch = msg.match[1];
-            const postData = {
-                "GIT_REVISION": deployBranch,
-                "SLACK_CHANNEL": msg.channel,
-                "REPORT_RESULT": true,
-            };
-            runJobOnJenkins(msg, "make-check", postData,
-                            "Telling Jenkins to run tests on branch `" +
+        const deployBranch = msg.match[1];
+        const postData = {
+            "GIT_REVISION": deployBranch,
+            "SLACK_CHANNEL": msg.channel,
+            "REPORT_RESULT": true,
+        };
+        let responseText = ("Telling Jenkins to run tests on branch `" +
                             deployBranch + "`.");
+        if (runningJob) {
+            responseText += "  They'll run after the current make-check ";
+            responseText += "completes.";
         }
+        runJobOnJenkins(msg, "make-check", postData, responseText);
     });
 }
 
