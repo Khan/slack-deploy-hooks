@@ -62,6 +62,13 @@ const DEPLOYER_REGEX = /^([^(]*)(?:\((.*)\))?$/;
 const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 
 
+// CSRF token used to submit Jenkins POST requests - in Jenkins-land, this is
+// referred to as a "crumb". This value is retrieved when the first Jenkins
+// POST is made, and stored throughout the lifetime of this instance since
+// Jenkins CSRF tokens apparently do not expire.
+let JENKINS_CSRF_TOKEN = null;
+
+
 /**
  * An error that will be reported back to the user.
  */
@@ -327,13 +334,34 @@ function cancelJobOnJenkins(msg, jobName, jobId, message) {
 }
 
 
+function runOnJenkins(msg, path, postData, message, allowRedirect) {
+    // If we haven't yet grabbed a CSRF token (needed for POST requests), then
+    // grab one before making our request.
+    if (!JENKINS_CSRF_TOKEN) {
+        getJenkinsCSRFToken().then(body => {
+            postToJenkins(msg, path, postData, message, allowRedirect);
+        });
+    } else {
+        postToJenkins(msg, path, postData, message, allowRedirect);
+    }
+}
+
+
 // path should be the URL path; postData should be an object which we will
 // encode.  If allowRedirect is falsy, we will consider a 3xx response an
 // error.  If allowRedirect is truthy, we will consider a 3xx response a
 // success.  (This is because a 302, for instance, might mean that we need to
 // follow a redirect to do the thing we want, or it might mean that we were
 // successful and are now getting redirected to a new page.)
-function runOnJenkins(msg, path, postData, message, allowRedirect) {
+function postToJenkins(msg, path, postData, message, allowRedirect) {
+    // TODO(sean): once we've got CSRF protection successfully enabled on
+    // Jenkins, we should raise an exception if JENKINS_CSRF_TOKEN isn't
+    // defined. For now, it's optional, to keep Sun functional whether Jenkins
+    // is CSRF-protected or not.
+    if (JENKINS_CSRF_TOKEN) {
+        postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
+    }
+
     const options = {
         url: "https://jenkins.khanacademy.org" + path,
         method: "POST",
@@ -361,6 +389,38 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
         // user-friendly one.
         throw new SunError("Jenkins won't listen to me!  You'll have to " +
                            "talk to it yourself.");
+    });
+}
+
+
+function getJenkinsCSRFToken() {
+    return request200({
+        url: ("https://jenkins.khanacademy.org/crumbIssuer/api/json"),
+        auth: {
+            username: "jenkins@khanacademy.org",
+            password: process.env.JENKINS_API_TOKEN,
+        },
+    }).then(body => {
+        const data = JSON.parse(body);
+        if (data.crumb === undefined) {
+            // TODO(sean): make this condition throw an error, so that Slack
+            // gets notified if this fails (which will help explain why a
+            // particular sun-call failed). For now, we merely log the failure,
+            // to keep Sun functional whether Jenkins is CSRF-protected or not.
+            console.error(
+                "No CSRF crumb returned from /crumbIssuer/api/json! " +
+                "Continuing on without CSRF tokens.");
+        } else {
+            JENKINS_CSRF_TOKEN = data.crumb;
+        }
+    }).catch(_err => {
+        // TODO(sean): make this condition throw an error, so that Slack gets
+        // notified if this fails (which will help explain why a particular
+        // sun-call failed). For now, we merely log the failure, to keep Sun
+        // functional whether Jenkins is CSRF-protected or not.
+        console.error(
+            "No CSRF crumb returned from /crumbIssuer/api/json! " +
+            "Continuing on without CSRF tokens.");
     });
 }
 
