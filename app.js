@@ -354,13 +354,7 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
 // follow a redirect to do the thing we want, or it might mean that we were
 // successful and are now getting redirected to a new page.)
 function postToJenkins(msg, path, postData, message, allowRedirect) {
-    // TODO(sean): once we've got CSRF protection successfully enabled on
-    // Jenkins, we should raise an exception if JENKINS_CSRF_TOKEN isn't
-    // defined. For now, it's optional, to keep Sun functional whether Jenkins
-    // is CSRF-protected or not.
-    if (JENKINS_CSRF_TOKEN) {
-        postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
-    }
+    postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
 
     const options = {
         url: "https://jenkins.khanacademy.org" + path,
@@ -394,33 +388,28 @@ function postToJenkins(msg, path, postData, message, allowRedirect) {
 
 
 function getJenkinsCSRFToken() {
-    return request200({
+    return requestQ({
         url: ("https://jenkins.khanacademy.org/crumbIssuer/api/json"),
         auth: {
             username: "jenkins@khanacademy.org",
             password: process.env.JENKINS_API_TOKEN,
         },
-    }).then(body => {
+    }).spread((res, body) => {
         const data = JSON.parse(body);
         if (data.crumb === undefined) {
-            // TODO(sean): make this condition throw an error, so that Slack
-            // gets notified if this fails (which will help explain why a
-            // particular sun-call failed). For now, we merely log the failure,
-            // to keep Sun functional whether Jenkins is CSRF-protected or not.
-            console.error(
-                "No CSRF crumb returned from /crumbIssuer/api/json! " +
-                "Continuing on without CSRF tokens.");
+            console.error("Operation aborted. Found no crumb data at " +
+                "/crumbIssuer/api/json. Maybe Jenkins CSRF protection has " +
+                "been turned off?");
+            throw new SunError(
+                "Operation aborted due to problems acquiring a CSRF token");
         } else {
             JENKINS_CSRF_TOKEN = data.crumb;
         }
-    }).catch(_err => {
-        // TODO(sean): make this condition throw an error, so that Slack gets
-        // notified if this fails (which will help explain why a particular
-        // sun-call failed). For now, we merely log the failure, to keep Sun
-        // functional whether Jenkins is CSRF-protected or not.
-        console.error(
-            "No CSRF crumb returned from /crumbIssuer/api/json! " +
-            "Continuing on without CSRF tokens.");
+    }).catch(err => {
+        console.error("Operation aborted. Encountered the following error " +
+            "when trying to reach /crumbIssuer/api/json: " + err);
+        throw new SunError(
+            "Operation aborted due to problems acquiring a CSRF token");
     });
 }
 
