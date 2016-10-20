@@ -705,7 +705,7 @@ function handleSetDefault(msg, deployState) {
         "TOKEN": deployState.TOKEN
     };
     runJobOnJenkins(msg, "deploy-set-default", postData,
-        "Telling Jenkins to set `" + deployState.VERSION_NAME +
+        "Telling Jenkins to set `" + deployState.GIT_TAG +
         "` as the default.");
 }
 
