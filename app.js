@@ -776,9 +776,10 @@ function handleFinish(msg, deployState) {
     runJobOnJenkins(msg, "deploy-finish", postData,
         "Telling Jenkins to finish this deploy!");
 
-    // Let's also move to the next person.
-    // TODO(csilvers): wait until the 'happy dance' message shows up first.
-    doQueueNext(msg, deployState);
+    // wait a little while before notifying the next person.
+    // hopefully the happy dance has appeared by then, if not
+    // humans will have to figure it out themselves.
+    setTimeout(() => doQueueNext(msg, deployState), 20000);
 }
 
 function handleEmergencyRollback(msg, _deployState) {
