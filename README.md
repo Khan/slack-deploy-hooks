@@ -56,4 +56,11 @@ above.)
 
 ### Build and Deploy
 
-All you have to do is run `npm run deploy` and follow directions. That's it.
+All you have to do is run `npm run deploy` and follow directions.
+
+You will need some secrets installed. The deploy script will complain if it
+can't find them, letting you know the details of which secrets are expected in
+which files.
+
+You also need to have loggged in with `gcloud` and must have permissions in the
+`khan-sun` project.
