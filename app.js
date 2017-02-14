@@ -1,6 +1,6 @@
 /**
  * Description:
- *   Send prod-deploy commands to jenkins.
+ *   Send commands to jenkins.
  *
  * Dependencies:
  *   None
@@ -25,6 +25,7 @@ const help_text = `*Commands*
   - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
   - \`sun: remove [user]\` - remove someone from the deploy queue (user is "me" or a username)
   - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
+  - \`sun: delete znd [znd name]\` - ask Jenkins to delete the given znd
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
   - \`sun: abort\` - abort a deploy (at any point during the process)
@@ -50,8 +51,8 @@ import bodyParser from "body-parser";
 import Q from "q";
 import request from "request";
 
-// The room to listen to deployment commands in.  For safety reasons, culture
-// cow will only listen in this room by default.  This should be a slack
+// The room to listen to deployment commands in.  For safety reasons, sun
+// will only listen in this room by default.  This should be a slack
 // channel ID, because the API we're using to send doesn't support linking to a
 // room by name.  You can get the list of our channels, including their IDs, at
 // https://api.slack.com/methods/channels.list/test; we could probably call
@@ -61,7 +62,7 @@ import request from "request";
 // name for readability.
 const DEPLOYMENT_ROOM_ID = process.env.DEPLOY_ROOM_ID || "C090KRE5P";
 
-// Whether to run in DEBUG mode.  In DEBUG mode, culture cow will not
+// Whether to run in DEBUG mode.  In DEBUG mode, sun will not
 // actually post commands to Jenkins, nor will it only honor Jenkins
 // state commands that come from the actual Jenkins, allowing for
 // easier debugging
@@ -674,6 +675,16 @@ function handleRemoveMe(msg, _deployState) {
 }
 
 
+function handleDeleteZnd(msg, _deployState) {
+    const znd_name = msg.match[1].trim();
+    const responseText = "Okay, I'll ask Jenkins to delete that ZND!";
+    const postData = {
+        "ZND_NAME": znd_name,
+    };
+    runJobOnJenkins(msg, "delete-znd", postData, responseText);
+}
+
+
 function handleMakeCheck(msg, _deployState) {
     jenkinsJobStatus("make-check").then(runningJob => {
         const deployBranch = msg.match[1];
@@ -842,6 +853,8 @@ const textHandlerMap = new Map([
     [/^(?:remove|dequeue)\s*(.*)$/i, handleRemoveMe],
     // Run tests on a branch outside the deploy process
     [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
+    // Delete a given znd
+    [/^delete znd\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Set the branch in testing to the default branch
