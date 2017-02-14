@@ -32,6 +32,19 @@ const help_text = `*Commands*
   - \`sun: emergency rollback\` - roll back the production site outside of the deploy process
 `;
 
+const emoji_help_text = `:speech_balloon:
+  :sun::question: help
+  :sun::heavy_plus_sign: queue
+  :sun::fast_forward: next
+  :sun::x: remove
+  :sun::test-tube: test
+  :sun::treeeee: deploy
+  :sun::rocket: set default
+  :sun::skull: abort
+  :sun::party_dino: finish
+  :sun::scream: emergency rollback
+`;
+
 import express from "express";
 import bodyParser from "body-parser";
 import Q from "q";
@@ -566,6 +579,10 @@ function handleHelp(msg, _deployState) {
     replyAsSun(msg, help_text);
 }
 
+function handleEmojiHelp(msg, _deployState) {
+    replyAsSun(msg, emoji_help_text);
+}
+
 function handlePing(msg, _deployState) {
     replyAsSun(msg, "I AM THE MONKEY KING!");
 }
@@ -806,7 +823,7 @@ function handleDeploymentMessage(fn, msg) {
         .then(state => fn(msg, state));
 }
 
-const handlerMap = new Map([
+const textHandlerMap = new Map([
     // Get help
     [/^help$/i, handleHelp],
     // Return ping and verify you're in the right room
@@ -841,6 +858,30 @@ const handlerMap = new Map([
     [/^.*$/i, handleHelp],
 ]);
 
+const emojiHandlerMap = new Map([
+    [/^:(?:question|grey_question):/i, handleEmojiHelp],
+    [/^:point_left:/i, handlePing],
+    [/^:fingerscrossed:/i, handleFingersCrossed],
+    [/^:shrug:/i, handleState],
+    [/^:hal9000:/i, handlePodBayDoors],
+    [/^:(?:plus1|heavy_plus_sign):\s*(.*)$/i, handleQueueMe],
+    [/^:(?:arrow_right|arrow_forward|fast_forward):/i, handleQueueNext],
+    [/^:(?:x|negative_squared_cross_mark|heavy_multiplication_x):\s*(.*)$/i,
+     handleRemoveMe],
+    [/^:(?:test-tube|100):\s*([^,]*)/i, handleMakeCheck],
+    [/^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\s*([^,]*)/i,
+     handleDeploy],
+    [/^:rocket:/i, handleSetDefault],
+    [/^:(?:skull|skull_and_crossbones|sad_mac|sadpanda|party_parrot_sad):/i,
+     handleAbort],
+    [/^:(?:cry|disappointed):/i, handleAbort],
+    [/^:(?:yolo|party_dino|ballot_box_with_check|checkered_flag):/i,
+     handleFinish],
+    [/^:(?:heavy_check_mark|white_check_mark):/i, handleFinish],
+    [/^:scream:/i, handleEmergencyRollback],
+    [/^.*$/i, handleEmojiHelp],
+]);
+
 const app = express();
 app.use(bodyParser.urlencoded({extended: true}));
 app.post("/", (req, res) => {
@@ -860,6 +901,8 @@ app.post("/", (req, res) => {
             `Sorry, I only respond to messages in <#${DEPLOYMENT_ROOM_ID}>!`));
         return;
     }
+    const handlerMap = (req.body.trigger_word[0] === ':' ?
+                        emojiHandlerMap : textHandlerMap);
     for (let [rx, fn] of handlerMap) {
         const match = rx.exec(message.text);
         if (match !== null) {
