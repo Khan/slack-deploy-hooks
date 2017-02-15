@@ -854,7 +854,7 @@ const textHandlerMap = new Map([
     // Run tests on a branch outside the deploy process
     [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
     // Delete a given znd
-    [/^delete znd\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
+    [/^delete(?: znd)?\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Set the branch in testing to the default branch
