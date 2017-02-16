@@ -26,6 +26,7 @@ const help_text = `*Commands*
   - \`sun: remove [user]\` - remove someone from the deploy queue (user is "me" or a username)
   - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
   - \`sun: delete znd [znd name]\` - ask Jenkins to delete the given znd
+  - \`sun: prompt znd cleanup\` - check in with znd owners about cleaning up their znd
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
   - \`sun: abort\` - abort a deploy (at any point during the process)
@@ -685,6 +686,13 @@ function handleDeleteZnd(msg, _deployState) {
 }
 
 
+function notifyZndOwners(msg, _deployState) {
+    const responseText = ("Okay, I'll check in with ZND owners about " +
+                          "cleaning up their ZNDs");
+    runJobOnJenkins(msg, "notify-znd-owners", {}, responseText);
+}
+
+
 function handleMakeCheck(msg, _deployState) {
     jenkinsJobStatus("make-check").then(runningJob => {
         const deployBranch = msg.match[1];
@@ -855,6 +863,8 @@ const textHandlerMap = new Map([
     [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
     // Delete a given znd
     [/^delete(?: znd)?\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
+    // Begin the deployment process for the specified branch
+    [/^prompt znd cleanup$/i, notifyZndOwners],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Set the branch in testing to the default branch
