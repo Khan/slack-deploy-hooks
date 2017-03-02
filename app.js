@@ -272,19 +272,31 @@ function getDeployState() {
 }
 
 /**
+ * Return the path of a url that points to the given job.
+ *
+ * jobName can be like "deploy/test" if the job is in a folder.
+ */
+function jobPath(jobName) {
+    // So deploy/test expands to deploy/job/test
+    let jobUrlPart = jobName.split('/').join('/job/');
+    return "/job/" + jobUrlPart;
+}
+
+
+/**
  * Returns a promise for the current job ID if one is running, or false if not.
  */
 function jenkinsJobStatus(jobName) {
     return request200({
-        url: ("https://jenkins.khanacademy.org" +
-              `/job/${jobName}/lastBuild/api/json`),
+        url: ("https://jenkins.khanacademy.org/" +
+              `${jobPath(jobName)}/lastBuild/api/json`),
         auth: {
             username: "jenkins@khanacademy.org",
             password: process.env.JENKINS_API_TOKEN,
         },
     }).then(body => {
         const data = JSON.parse(body);
-        if (data.building === undefined || 
+        if (data.building === undefined ||
                 (data.building && !data.number)) {
             console.error("No build status found!");
             console.error(`    API response: ${body}`);
@@ -331,16 +343,12 @@ function getRunningJob() {
 
 // postData is an object, which we will encode and post to either
 // /job/<job>/build or /job/<job>/buildWithParameters, as appropriate.
-// If <job> has a slash in it (because it's in a folder), we expand it
-// to the appropriate path.
 function runJobOnJenkins(msg, jobName, postData, message) {
-    // So deploy/test expands to deploy/job/test
-    let jobUrlPart = jobName.split('/').join('/job/');
     let path;
     if (Object.keys(postData).length === 0) {  // no parameters
-        path = `/job/${jobUrlPart}/build`;
+        path = `${jobPath(jobName)}/build`;
     } else {
-        path = `/job/${jobUrlPart}/buildWithParameters`;
+        path = `${jobPath(jobName)}/buildWithParameters`;
     }
 
     runOnJenkins(msg, path, postData, message);
@@ -348,7 +356,7 @@ function runJobOnJenkins(msg, jobName, postData, message) {
 
 
 function cancelJobOnJenkins(msg, jobName, jobId, message) {
-    const path = `/job/${jobName}/${jobId}/stop`;
+    const path = `${jobPath(jobName)}/${jobId}/stop`;
     runOnJenkins(msg, path, {}, message, true);
 }
 
