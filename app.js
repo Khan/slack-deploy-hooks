@@ -331,12 +331,16 @@ function getRunningJob() {
 
 // postData is an object, which we will encode and post to either
 // /job/<job>/build or /job/<job>/buildWithParameters, as appropriate.
+// If <job> has a slash in it (because it's in a folder), we expand it
+// to the appropriate path.
 function runJobOnJenkins(msg, jobName, postData, message) {
+    // So deploy/test expands to deploy/job/test
+    let jobUrlPart = jobName.split('/').join('/job/');
     let path;
     if (Object.keys(postData).length === 0) {  // no parameters
-        path = `/job/${jobName}/build`;
+        path = `/job/${jobUrlPart}/build`;
     } else {
-        path = `/job/${jobName}/buildWithParameters`;
+        path = `/job/${jobUrlPart}/buildWithParameters`;
     }
 
     runOnJenkins(msg, path, postData, message);
@@ -707,7 +711,7 @@ function handleMakeCheck(msg, _deployState) {
             responseText += "  They'll run after the current make-check ";
             responseText += "completes.";
         }
-        runJobOnJenkins(msg, "make-check", postData, responseText);
+        runJobOnJenkins(msg, "deploy/webapp-test", postData, responseText);
     });
 }
 
