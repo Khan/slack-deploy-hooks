@@ -288,7 +288,7 @@ function jobPath(jobName) {
  */
 function jenkinsJobStatus(jobName) {
     return request200({
-        url: ("https://jenkins.khanacademy.org/" +
+        url: ("https://jenkins.khanacademy.org" +
               `${jobPath(jobName)}/lastBuild/api/json`),
         auth: {
             username: "jenkins@khanacademy.org",
@@ -706,7 +706,7 @@ function notifyZndOwners(msg, _deployState) {
 
 
 function handleMakeCheck(msg, _deployState) {
-    jenkinsJobStatus("make-check").then(runningJob => {
+    jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
         const deployBranch = msg.match[1];
         const postData = {
             "GIT_REVISION": deployBranch,
@@ -716,7 +716,7 @@ function handleMakeCheck(msg, _deployState) {
         let responseText = ("Telling Jenkins to run tests on branch `" +
                             deployBranch + "`.");
         if (runningJob) {
-            responseText += "  They'll run after the current make-check ";
+            responseText += "  They'll run after the current webapp-test ";
             responseText += "completes.";
         }
         runJobOnJenkins(msg, "deploy/webapp-test", postData, responseText);
