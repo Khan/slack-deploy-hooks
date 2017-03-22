@@ -17,7 +17,15 @@
  *
  * Author:
  *   bmp and csilvers
+ *
+ * TODO(csilvers): split this up into several files.
  */
+
+import Q from "q";
+import bodyParser from "body-parser";
+import express from "express";
+import request from "request";
+
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
@@ -46,11 +54,6 @@ const emoji_help_text = `:speech_balloon:
   :sun::party_dino: finish
   :sun::scream: emergency rollback
 `;
-
-import express from "express";
-import bodyParser from "body-parser";
-import Q from "q";
-import request from "request";
 
 // The room to listen to deployment commands in.  For safety reasons, sun
 // will only listen in this room by default.  This should be a slack
@@ -83,6 +86,10 @@ const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 // Jenkins CSRF tokens apparently do not expire.
 let JENKINS_CSRF_TOKEN = null;
 
+
+//--------------------------------------------------------------------------
+// Utility code
+//--------------------------------------------------------------------------
 
 /**
  * An error that will be reported back to the user.
@@ -186,45 +193,6 @@ function onError(msg, err) {
 }
 
 /**
- * Return whether the proposed step is valid.
- */
-function pipelineStepIsValid(deployState, step) {
-    return (deployState.POSSIBLE_NEXT_STEPS &&
-            (deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1 ||
-             deployState.POSSIBLE_NEXT_STEPS.indexOf('<all>') !== -1));
-}
-
-function wrongPipelineStep(msg, badStep) {
-    replyAsSun(msg, `:hal9000: I'm sorry, @${msg.user}.  I'm ` +
-        "afraid I can't let you do that.  (It's not time to " +
-        `${badStep}.  If you disagree, bring it up with Jenkins.)`);
-}
-
-/**
- * Make a request to the given Slack API call with the given params object
- *
- * Returns a promise for an object (decoded from the response JSON).
- */
-function slackAPI(call, params) {
-    params.token = process.env.SLACK_BOT_TOKEN;
-    const options = {
-        url: `https://slack.com/api/${call}`,
-        // Slack always accepts both GET and POST, but using GET for things
-        // that modify data is questionable.
-        method: "POST",
-        form: params,
-    };
-    return request200(options).then(JSON.parse).then(data => {
-        if (!data.ok) {
-            throw new SunError("Slack won't listen to me!  " +
-                               `It said \`${data.error}\` when I tried to ` +
-                               `\`${call}\`.`);
-        }
-        return data;
-    });
-}
-
-/**
  * Get a promise for the [response, body] of a request-style options object
  *
  * A URL may be passed as the options object in the case of a GET request.
@@ -263,12 +231,109 @@ function request200(options) {
 }
 
 /**
- * Get the current state of the deploy from Jenkins.
+ * Make a request to the given Slack API call with the given params object
  *
- * Returns a promise for the state.
+ * Returns a promise for an object (decoded from the response JSON).
  */
-function getDeployState() {
-    return requestQ("https://jenkins.khanacademy.org/deploy-state.json");
+function slackAPI(call, params) {
+    params.token = process.env.SLACK_BOT_TOKEN;
+    const options = {
+        url: `https://slack.com/api/${call}`,
+        // Slack always accepts both GET and POST, but using GET for things
+        // that modify data is questionable.
+        method: "POST",
+        form: params,
+    };
+    return request200(options).then(JSON.parse).then(data => {
+        if (!data.ok) {
+            throw new SunError("Slack won't listen to me!  " +
+                               `It said \`${data.error}\` when I tried to ` +
+                               `\`${call}\`.`);
+        }
+        return data;
+    });
+}
+
+
+//--------------------------------------------------------------------------
+// Talking to Jenkins
+//--------------------------------------------------------------------------
+
+function getJenkinsCSRFToken() {
+    return requestQ({
+        url: ("https://jenkins.khanacademy.org/crumbIssuer/api/json"),
+        auth: {
+            username: "jenkins@khanacademy.org",
+            password: process.env.JENKINS_API_TOKEN,
+        },
+    }).spread((res, body) => {
+        const data = JSON.parse(body);
+        if (data.crumb === undefined) {
+            console.error("Operation aborted. Found no crumb data at " +
+                "/crumbIssuer/api/json. Maybe Jenkins CSRF protection has " +
+                "been turned off?");
+            throw new SunError(
+                "Operation aborted due to problems acquiring a CSRF token");
+        } else {
+            JENKINS_CSRF_TOKEN = data.crumb;
+        }
+    }).catch(err => {
+        console.error("Operation aborted. Encountered the following error " +
+            "when trying to reach /crumbIssuer/api/json: " + err);
+        throw new SunError(
+            "Operation aborted due to problems acquiring a CSRF token");
+    });
+}
+
+// path should be the URL path; postData should be an object which we will
+// encode.  If allowRedirect is falsy, we will consider a 3xx response an
+// error.  If allowRedirect is truthy, we will consider a 3xx response a
+// success.  (This is because a 302, for instance, might mean that we need to
+// follow a redirect to do the thing we want, or it might mean that we were
+// successful and are now getting redirected to a new page.)
+function postToJenkins(msg, path, postData, message, allowRedirect) {
+    postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
+
+    const options = {
+        url: "https://jenkins.khanacademy.org" + path,
+        method: "POST",
+        form: postData,
+        auth: {
+            username: "jenkins@khanacademy.org",
+            password: process.env.JENKINS_API_TOKEN,
+        },
+    };
+    // Tell readers what we're doing.
+    replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") + message);
+
+    if (DEBUG) {
+        console.log(options);
+        return;
+    }
+
+    requestQ(options).then((res, body) => {
+        if ((!allowRedirect && res.statusCode > 299) || res.statusCode > 399) {
+            logHttpError(res, body);
+            throw res;
+        }
+    }).catch(_err => {
+        // Replace the error (which has already been logged) with a more
+        // user-friendly one.
+        throw new SunError("Jenkins won't listen to me!  You'll have to " +
+                           "talk to it yourself.");
+    });
+}
+
+function runOnJenkins(msg, path, postData, message, allowRedirect) {
+    // If we haven't yet grabbed a CSRF token (needed for POST requests), then
+    // grab one before making our request.
+    if (!JENKINS_CSRF_TOKEN) {
+        getJenkinsCSRFToken().then(body => {
+            postToJenkins(msg, path, postData, message, allowRedirect);
+        });
+    } else {
+        postToJenkins(msg, path, postData, message, allowRedirect);
+    }
 }
 
 /**
@@ -282,6 +347,15 @@ function jobPath(jobName) {
     return "/job/" + jobUrlPart;
 }
 
+
+/**
+ * Get the current state of the deploy from Jenkins.
+ *
+ * Returns a promise for the state.
+ */
+function getDeployState() {
+    return requestQ("https://jenkins.khanacademy.org/deploy-state.json");
+}
 
 /**
  * Returns a promise for the current job ID if one is running, or false if not.
@@ -361,139 +435,9 @@ function cancelJobOnJenkins(msg, jobName, jobId, message) {
 }
 
 
-function runOnJenkins(msg, path, postData, message, allowRedirect) {
-    // If we haven't yet grabbed a CSRF token (needed for POST requests), then
-    // grab one before making our request.
-    if (!JENKINS_CSRF_TOKEN) {
-        getJenkinsCSRFToken().then(body => {
-            postToJenkins(msg, path, postData, message, allowRedirect);
-        });
-    } else {
-        postToJenkins(msg, path, postData, message, allowRedirect);
-    }
-}
-
-
-// path should be the URL path; postData should be an object which we will
-// encode.  If allowRedirect is falsy, we will consider a 3xx response an
-// error.  If allowRedirect is truthy, we will consider a 3xx response a
-// success.  (This is because a 302, for instance, might mean that we need to
-// follow a redirect to do the thing we want, or it might mean that we were
-// successful and are now getting redirected to a new page.)
-function postToJenkins(msg, path, postData, message, allowRedirect) {
-    postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
-
-    const options = {
-        url: "https://jenkins.khanacademy.org" + path,
-        method: "POST",
-        form: postData,
-        auth: {
-            username: "jenkins@khanacademy.org",
-            password: process.env.JENKINS_API_TOKEN,
-        },
-    };
-    // Tell readers what we're doing.
-    replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") + message);
-
-    if (DEBUG) {
-        console.log(options);
-        return;
-    }
-
-    requestQ(options).then((res, body) => {
-        if ((!allowRedirect && res.statusCode > 299) || res.statusCode > 399) {
-            logHttpError(res, body);
-            throw res;
-        }
-    }).catch(_err => {
-        // Replace the error (which has already been logged) with a more
-        // user-friendly one.
-        throw new SunError("Jenkins won't listen to me!  You'll have to " +
-                           "talk to it yourself.");
-    });
-}
-
-
-function getJenkinsCSRFToken() {
-    return requestQ({
-        url: ("https://jenkins.khanacademy.org/crumbIssuer/api/json"),
-        auth: {
-            username: "jenkins@khanacademy.org",
-            password: process.env.JENKINS_API_TOKEN,
-        },
-    }).spread((res, body) => {
-        const data = JSON.parse(body);
-        if (data.crumb === undefined) {
-            console.error("Operation aborted. Found no crumb data at " +
-                "/crumbIssuer/api/json. Maybe Jenkins CSRF protection has " +
-                "been turned off?");
-            throw new SunError(
-                "Operation aborted due to problems acquiring a CSRF token");
-        } else {
-            JENKINS_CSRF_TOKEN = data.crumb;
-        }
-    }).catch(err => {
-        console.error("Operation aborted. Encountered the following error " +
-            "when trying to reach /crumbIssuer/api/json: " + err);
-        throw new SunError(
-            "Operation aborted due to problems acquiring a CSRF token");
-    });
-}
-
-
-/**
- * Parse a deployer from the topic into an object.
- * 
- * @param string deployerString The deployer string to be parsed.
- * 
- * @return {?string|{usernames: Array.<string>, note: (undefined|string)}} The
- *     parsed deployer.  null if there is no deployer (i.e. an empty string or
- *     series of dashes.  A string if we couldn't parse the deployer.  An
- *     object if we could.
- */
-function parseDeployer(deployerString) {
-    const trimmed = deployerString.trim();
-    if (!trimmed || trimmed.match(NO_DEPLOYER_REGEX)) {
-        return null;
-    }
-    const matches = trimmed.match(DEPLOYER_REGEX);
-    if (!matches) {
-        return trimmed;
-    }
-    return {
-        usernames: matches[1].split("+")
-            .map(username => unobfuscateUsername(username.trim())),
-        note: matches[2],
-    };
-}
-
-
-/**
- * Turn a deployer object back into a string.
- *
- * @param {?string|{usernames: Array.<string>, note: (undefined|string)}}
- *     deployer A deployer such as that returned by parseDeployer.
- *
- * @return string
- */
-function stringifyDeployer(deployer) {
-    if (!deployer) {
-        // an em dash
-        return "—";
-    } else if (!deployer.usernames) {
-        return deployer;
-    } else {
-        let suffix = "";
-        if (deployer.note) {
-            suffix = ` (${deployer.note})`;
-        }
-        const listOfUsernames = deployer.usernames
-            .map(obfuscateUsername)
-            .join(" + ");
-        return listOfUsernames + suffix;
-    }
-}
-
+//--------------------------------------------------------------------------
+// Slack: deploy queue
+//--------------------------------------------------------------------------
 
 /**
  * Obfuscate a username so it won't generate an at-mention
@@ -526,6 +470,57 @@ function unobfuscateUsername(username) {
     return username.replace("\u200c", "");
 }
 
+/**
+ * Parse a deployer from the topic into an object.
+ *
+ * @param string deployerString The deployer string to be parsed.
+ *
+ * @return {?string|{usernames: Array.<string>, note: (undefined|string)}} The
+ *     parsed deployer.  null if there is no deployer (i.e. an empty string or
+ *     series of dashes.  A string if we couldn't parse the deployer.  An
+ *     object if we could.
+ */
+function parseDeployer(deployerString) {
+    const trimmed = deployerString.trim();
+    if (!trimmed || trimmed.match(NO_DEPLOYER_REGEX)) {
+        return null;
+    }
+    const matches = trimmed.match(DEPLOYER_REGEX);
+    if (!matches) {
+        return trimmed;
+    }
+    return {
+        usernames: matches[1].split("+")
+            .map(username => unobfuscateUsername(username.trim())),
+        note: matches[2],
+    };
+}
+
+/**
+ * Turn a deployer object back into a string.
+ *
+ * @param {?string|{usernames: Array.<string>, note: (undefined|string)}}
+ *     deployer A deployer such as that returned by parseDeployer.
+ *
+ * @return string
+ */
+function stringifyDeployer(deployer) {
+    if (!deployer) {
+        // an em dash
+        return "—";
+    } else if (!deployer.usernames) {
+        return deployer;
+    } else {
+        let suffix = "";
+        if (deployer.note) {
+            suffix = ` (${deployer.note})`;
+        }
+        const listOfUsernames = deployer.usernames
+            .map(obfuscateUsername)
+            .join(" + ");
+        return listOfUsernames + suffix;
+    }
+}
 
 /**
  * Get a promise for the parsed topic of the deployment room.
@@ -569,7 +564,6 @@ function getTopic(_msg) {
     });
 }
 
-
 /**
  * Set the topic of the deployment room.
  *
@@ -588,6 +582,25 @@ function setTopic(msg, topic) {
     });
 }
 
+
+//--------------------------------------------------------------------------
+// Slack: sun wukong the monkey king
+//--------------------------------------------------------------------------
+
+/**
+ * Return whether the proposed step is valid.
+ */
+function pipelineStepIsValid(deployState, step) {
+    return (deployState.POSSIBLE_NEXT_STEPS &&
+            (deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1 ||
+             deployState.POSSIBLE_NEXT_STEPS.indexOf('<all>') !== -1));
+}
+
+function wrongPipelineStep(msg, badStep) {
+    replyAsSun(msg, `:hal9000: I'm sorry, @${msg.user}.  I'm ` +
+        "afraid I can't let you do that.  (It's not time to " +
+        `${badStep}.  If you disagree, bring it up with Jenkins.)`);
+}
 
 function handleHelp(msg, _deployState) {
     replyAsSun(msg, help_text);
@@ -698,7 +711,7 @@ function handleDeleteZnd(msg, _deployState) {
 }
 
 
-function notifyZndOwners(msg, _deployState) {
+function handleNotifyZndOwners(msg, _deployState) {
     const responseText = ("Okay, I'll check in with ZND owners about " +
                           "cleaning up their ZNDs");
     runJobOnJenkins(msg, "notify-znd-owners", {}, responseText);
@@ -876,7 +889,7 @@ const textHandlerMap = new Map([
     // Delete a given znd
     [/^delete(?: znd)?\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
     // Begin the deployment process for the specified branch
-    [/^prompt znd cleanup$/i, notifyZndOwners],
+    [/^prompt znd cleanup$/i, handleNotifyZndOwners],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Set the branch in testing to the default branch
