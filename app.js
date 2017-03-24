@@ -25,7 +25,9 @@ import Q from "q";
 import bodyParser from "body-parser";
 import express from "express";
 import request from "request";
+import googleapis from "googleapis";
 
+const googleKey = require("./.email_role_checker_secret.json");
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
@@ -86,6 +88,11 @@ const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 // Jenkins CSRF tokens apparently do not expire.
 let JENKINS_CSRF_TOKEN = null;
 
+
+// Email addresses of users authorized to deploy. Set by parseIAMPolicy().
+let VALID_DEPLOYER_EMAILS = new Set();
+// Maps slack user ids to email addresses.
+const USER_EMAILS = new Map();
 
 //--------------------------------------------------------------------------
 // Utility code
@@ -252,6 +259,116 @@ function slackAPI(call, params) {
         }
         return data;
     });
+}
+
+
+//--------------------------------------------------------------------------
+// Developer email validation
+//--------------------------------------------------------------------------
+
+function getUserEmails() {
+    return slackAPI("users.list", {}).then(data => {
+        for (let i in data.members) {
+            const member = data.members[i];
+            USER_EMAILS.set(member.id, member.profile.email);
+        }
+        return "ok";
+    });
+}
+
+/**
+ * Returns a promise that resolves to a boolean. Check if an email is authorized
+ * to deploy.
+ */
+function isFulltimeDev(userId) {
+    let email = USER_EMAILS.get(userId);
+    const promises = [];
+    if (email === undefined) {
+        // Maybe a new user, reload slack emails.
+        promises.push(getUserEmails());
+        console.error("Refetching emails, missing " + userId);
+    }
+    if (VALID_DEPLOYER_EMAILS.size === 0 || !VALID_DEPLOYER_EMAILS.has(email)) {
+        // Try to load authorized emails.
+        promises.push(getIAMPolicy());
+        console.error("Refetching authorized emails, missing " + email);
+    }
+    return Q.all(promises).then(() => {
+        email = USER_EMAILS.get(userId);
+        return VALID_DEPLOYER_EMAILS.has(email);
+    });
+}
+
+//--------------------------------------------------------------------------
+// Talking to GCP
+//--------------------------------------------------------------------------
+
+/**
+ * Authorize with GCP using JWT secret and fetch the khan-academy IAM policy.
+ * Returns a promise.
+ */
+function getIAMPolicy() {
+    const deferred = Q.defer();
+    let cloudresourcemanager = googleapis.cloudresourcemanager("v1");
+
+    let jwtClient = new googleapis.auth.JWT(
+        googleKey.client_email,
+        null,
+        googleKey.private_key,
+        ["https://www.googleapis.com/auth/cloudplatformprojects.readonly"],
+        null
+    );
+
+    jwtClient.authorize((err, tokens) => {
+        if (err) {
+            deferred.reject(err);
+            return;
+        }
+
+        // https://cloud.google.com/resource-manager/reference/rest/v1/projects/getIamPolicy
+        const request = {
+            resource_: "khan-academy",
+            resource: {},
+            auth: jwtClient
+        };
+        cloudresourcemanager.projects.getIamPolicy(request, (err, result) => {
+            if (err) {
+                deferred.reject(err);
+                return;
+            }
+            parseIAMPolicy(result);
+            deferred.resolve();
+        });
+    });
+    return deferred.promise;
+}
+
+/**
+ * Parse the IAM policy and set VALID_DEPLOYER_EMAILS based on all the users who
+ * have either the Editor or the Owner role in the project.
+ */
+function parseIAMPolicy(result) {
+    const emails = new Set();
+    const devRoles = ["roles/editor", "roles/owner"];
+    for (let i in result.bindings) {
+        const users = result.bindings[i];
+        if (devRoles.indexOf(users.role) !== -1) {
+            for (let j in users.members) {
+                const member = users.members[j];
+                if (member.indexOf(":") == -1) {
+                    // Ignore members who aren't of the format type:id.
+                    continue;
+                }
+                const parts = member.split(":", 2);
+                const memberType = parts[0];
+                if (memberType !== "user") {
+                    continue;
+                }
+                emails.add(parts[1]);
+            }
+        }
+    }
+    VALID_DEPLOYER_EMAILS = emails;
 }
 
 
@@ -602,6 +719,21 @@ function wrongPipelineStep(msg, badStep) {
         `${badStep}.  If you disagree, bring it up with Jenkins.)`);
 }
 
+function validateUserAuth(msg) {
+    return isFulltimeDev(msg.user_id).then(result => {
+        if (result) {
+            return "ok";
+        } else {
+            throw new SunError(
+                ":hal9000: You must be a fulltime developer to " +
+                "do that. Ask <#C0BBDFJ7M|it> to make " +
+                "sure you have the correct GCP roles. " +
+                "It's always possible to use Jenkins to deploy if you " +
+                "are getting this message in error.");
+        }
+    });
+}
+
 function handleHelp(msg, _deployState) {
     replyAsSun(msg, help_text);
 }
@@ -632,19 +764,21 @@ function handlePodBayDoors(msg, _deployState) {
 }
 
 function handleQueueMe(msg, _deployState) {
-    let user = msg.user;
-    const arg = msg.match[1].trim();
-    if (arg && arg !== "me") {
-        user = arg;
-    }
-    return getTopic(msg).then(topic => {
-        if (topic.queue.length === 0 && topic.deployer === null) {
-            topic.deployer = user;
-            return setTopic(msg, topic);
-        } else {
-            topic.queue.push(obfuscateUsername(user));
-            return setTopic(msg, topic);
+    return validateUserAuth(msg).then(() => {
+        let user = msg.user;
+        const arg = msg.match[1].trim();
+        if (arg && arg !== "me") {
+            user = arg;
         }
+        return getTopic(msg).then(topic => {
+            if (topic.queue.length === 0 && topic.deployer === null) {
+                topic.deployer = user;
+                return setTopic(msg, topic);
+            } else {
+                topic.queue.push(obfuscateUsername(user));
+                return setTopic(msg, topic);
+            }
+        });
     });
 }
 
@@ -737,37 +871,42 @@ function handleMakeCheck(msg, _deployState) {
 }
 
 function handleDeploy(msg, deployState) {
-    if (deployState.POSSIBLE_NEXT_STEPS) {
-        replyAsSun(msg, "I think there's a deploy already going on.  If that's " +
-            "not the case, take it up with Jenkins.");
-        return;
-    }
+    return validateUserAuth(msg).then(() => {
+        if (deployState.POSSIBLE_NEXT_STEPS) {
+            replyAsSun(msg, "I think there's a deploy already going on. " +
+                       "If that's not the case, take it up with Jenkins.");
+            return;
+        }
 
-    const deployBranch = msg.match[1];
-    const caller = msg.user;
-    const postData = {
-        "GIT_REVISION": deployBranch,
-        // In theory this should be an email address but we actually
-        // only care about names for the script, so we make up
-        // a 'fake' email that yields our name.
-        "BUILD_USER_ID_FROM_SCRIPT": caller + "@khanacademy.org"
-    };
+        const deployBranch = msg.match[1];
+        const caller = msg.user;
+        const postData = {
+            "GIT_REVISION": deployBranch,
+            // In theory this should be an email address but we actually
+            // only care about names for the script, so we make up
+            // a 'fake' email that yields our name.
+            "BUILD_USER_ID_FROM_SCRIPT": caller + "@khanacademy.org"
+        };
 
-    runJobOnJenkins(msg, "deploy-via-multijob", postData,
-        "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+        runJobOnJenkins(msg, "deploy-via-multijob", postData,
+                        "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+
+    });
 }
 
 function handleSetDefault(msg, deployState) {
-    if (!pipelineStepIsValid(deployState, "set-default-start")) {
-        wrongPipelineStep(msg, "set-default");
-        return;
-    }
-    const postData = {
-        "TOKEN": deployState.TOKEN
-    };
-    runJobOnJenkins(msg, "deploy-set-default", postData,
-        "Telling Jenkins to set `" + deployState.GIT_TAG +
-        "` as the default.");
+    return validateUserAuth(msg).then(() => {
+        if (!pipelineStepIsValid(deployState, "set-default-start")) {
+            wrongPipelineStep(msg, "set-default");
+            return;
+        }
+        const postData = {
+            "TOKEN": deployState.TOKEN
+        };
+        runJobOnJenkins(msg, "deploy-set-default", postData,
+                        "Telling Jenkins to set `" + deployState.GIT_TAG +
+                        "` as the default.");
+    });
 }
 
 function handleAbort(msg, deployState) {
@@ -941,6 +1080,7 @@ app.post("/", (req, res) => {
         channel: "#" + req.body.channel_name,
         channel_id: req.body.channel_id,
         user: req.body.user_name,
+        user_id: req.body.user_id,
         text: req.body.text.substring(req.body.trigger_word.length).trimLeft()
     };
     if (message.channel_id !== DEPLOYMENT_ROOM_ID) {
@@ -962,6 +1102,7 @@ app.post("/", (req, res) => {
         }
     }
 });
+
 
 const server = app.listen(process.env.PORT || "8080", "0.0.0.0", () => {
     console.log("App listening at https://%s:%s",

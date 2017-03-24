@@ -28,6 +28,8 @@ SLACK_VERIFICATION_TOKEN_FILE = '.slack_verification_token'
 JENKINS_API_REPLACEMENT = 'XXX-REPLACE-WITH-JENKINS-API-TOKEN-XXX'
 # Path to file containing the Jenkins API token to use
 JENKINS_API_TOKEN_FILE = '.jenkins_api_token'
+# Path to a file containing the Email roles checker CGP secret
+EMAIL_ROLES_SECRET = '.email_role_checker_secret.json'
 
 
 def get_secret(filename, passphrase_id):
@@ -54,6 +56,7 @@ def main():
     slack_bot_token = get_secret(SLACK_BOT_TOKEN_FILE, "K99")
     slack_verification_token = get_secret(SLACK_VERIFICATION_TOKEN_FILE, "K96")
     jenkins_api_token = get_secret(JENKINS_API_TOKEN_FILE, "K92")
+    email_roles_secret = get_secret(EMAIL_ROLES_SECRET, "K219")
     build_appfile(slack_bot_token,
                   slack_verification_token,
                   jenkins_api_token)

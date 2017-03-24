@@ -5,3 +5,4 @@ node_modules
 .slack_webhook_url
 .slack_bot_token
 .slack_verification_token
+.email_role_checker_secret.json

@@ -15,6 +15,7 @@
     "babel": "^5.8",
     "body-parser": "^1.13",
     "express": "^4.13",
+    "googleapis": "^18.0.0",
     "q": "^1.4",
     "request": "^2.64.0"
   },
