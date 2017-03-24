@@ -29,7 +29,7 @@ JENKINS_API_REPLACEMENT = 'XXX-REPLACE-WITH-JENKINS-API-TOKEN-XXX'
 # Path to file containing the Jenkins API token to use
 JENKINS_API_TOKEN_FILE = '.jenkins_api_token'
 # Path to a file containing the Email roles checker CGP secret
-EMAIL_ROLES_SECRET = '.email_role_checker_secret.json'
+EMAIL_ROLES_SECRET = 'email_role_checker_secret.json'
 
 
 def get_secret(filename, passphrase_id):

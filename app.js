@@ -27,7 +27,7 @@ import express from "express";
 import request from "request";
 import googleapis from "googleapis";
 
-const googleKey = require("./.email_role_checker_secret.json");
+const googleKey = require("./email_role_checker_secret.json");
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
