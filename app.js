@@ -408,31 +408,32 @@ function getJenkinsCSRFToken() {
 // success.  (This is because a 302, for instance, might mean that we need to
 // follow a redirect to do the thing we want, or it might mean that we were
 // successful and are now getting redirected to a new page.)
-function postToJenkins(msg, path, postData, message, allowRedirect) {
-    postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
-
+function getOrPostToJenkins(path, postData, allowRedirect) {
     const options = {
         url: "https://jenkins.khanacademy.org" + path,
-        method: "POST",
-        form: postData,
+        method: "GET",
         auth: {
             username: "jenkins@khanacademy.org",
             password: process.env.JENKINS_API_TOKEN,
         },
     };
-    // Tell readers what we're doing.
-    replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") + message);
+    if (postData !== null) {
+        options.method = "POST";
+        postData['Jenkins-Crumb'] = JENKINS_CSRF_TOKEN;
+        options.form = postData;
+    }
 
     if (DEBUG) {
         console.log(options);
-        return;
+        return Q('');       // a promise resolving to the empty string
     }
 
-    requestQ(options).then((res, body) => {
+    return requestQ(options).spread((res, body) => {
         if ((!allowRedirect && res.statusCode > 299) || res.statusCode > 399) {
             logHttpError(res, body);
             throw res;
         }
+        return body;
     }).catch(_err => {
         // Replace the error (which has already been logged) with a more
         // user-friendly one.
@@ -442,14 +443,19 @@ function postToJenkins(msg, path, postData, message, allowRedirect) {
 }
 
 function runOnJenkins(msg, path, postData, message, allowRedirect) {
+    // Tell readers what we're doing.
+    if (message) {
+        replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") + message);
+    }
+
     // If we haven't yet grabbed a CSRF token (needed for POST requests), then
     // grab one before making our request.
     if (!JENKINS_CSRF_TOKEN) {
         getJenkinsCSRFToken().then(body => {
-            postToJenkins(msg, path, postData, message, allowRedirect);
+            getOrPostToJenkins(path, postData, allowRedirect);
         });
     } else {
-        postToJenkins(msg, path, postData, message, allowRedirect);
+        getOrPostToJenkins(path, postData, allowRedirect);
     }
 }
 
@@ -518,7 +524,8 @@ function jenkinsJobStatus(jobName) {
  * shouldn't happen.
  */
 function getRunningJob() {
-    const jobs = ["deploy-via-multijob", "deploy-set-default", "deploy-finish"];
+    const jobs = ["deploy-via-multijob", "deploy-set-default", "deploy-finish",
+                  "deploy/deploy-webapp"];
     return Q.all(jobs.map(jenkinsJobStatus))
         .then(jobIds => {
             // `jobIds` is an array of jenkins job IDs corresponding to the names in
@@ -704,13 +711,47 @@ function setTopic(msg, topic) {
 // Slack: sun wukong the monkey king
 //--------------------------------------------------------------------------
 
+function deployIsRunning(deployState, deployWebappId) {
+    // deployState is set for old-style deploys, and deploy-webapp is
+    // running for new-style deploys.
+    return ((deployState && !!deployState.POSSIBLE_NEXT_STEPS) ||
+            !!deployWebappId);
+}
+
+function isPossibleNextStep(step, deployState) {
+    return (deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1 ||
+            deployState.POSSIBLE_NEXT_STEPS.indexOf('<all>') !== -1);
+}
+
 /**
- * Return whether the proposed step is valid.
+ * Return a promise that resolves to whether the pipeline step is valid.
  */
-function pipelineStepIsValid(deployState, step) {
-    return (deployState.POSSIBLE_NEXT_STEPS &&
-            (deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1 ||
-             deployState.POSSIBLE_NEXT_STEPS.indexOf('<all>') !== -1));
+function validatePipelineStep(step, deployState, deployWebappId) {
+    if (deployState && deployState.POSSIBLE_NEXT_STEPS) {
+        // Old-style deploy
+        return Q(isPossibleNextStep(step, deployState));
+    } else if (deployWebappId) {
+        // New-style deploy.
+        const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/`;
+        let expectedName = null;
+        if (step === "set-default-start") {
+            // The "/input" form is where you click to proceed or abort.
+            // The 'proceed' button has the following name on it.
+            expectedName = "SetDefault";
+        } else if (step == "finish-with-success") {
+            expectedName = "Finish";
+        }
+
+        if (expectedName) {
+            return getOrPostToJenkins(path, null, false).then(body => {
+                return body.indexOf(`name="${expectedName}"`) !== -1;
+            }).catch(_err => {  // 404: no inputs expected right now at all
+                return false;
+            });
+        } else {
+            return Q(false);
+        }
+    }
 }
 
 function wrongPipelineStep(msg, badStep) {
@@ -752,7 +793,7 @@ function handleFingersCrossed(msg, _deployState) {
 
 function handleState(msg, deployState) {
     const prettyState = JSON.stringify(deployState, null, 2);
-    return getRunningJob().then(job => {
+    getRunningJob().then(job => {
         const prettyRunningJob = JSON.stringify(job, null, 2);
         replyAsSun(msg, "Here's the state of the deploy: ```" +
             `\n${prettyRunningJob}\n\n${prettyState}\n` + "```");
@@ -872,40 +913,74 @@ function handleMakeCheck(msg, _deployState) {
 
 function handleDeploy(msg, deployState) {
     return validateUserAuth(msg).then(() => {
-        if (deployState.POSSIBLE_NEXT_STEPS) {
-            replyAsSun(msg, "I think there's a deploy already going on. " +
-                       "If that's not the case, take it up with Jenkins.");
-            return;
-        }
+        jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+            if (deployIsRunning(deployState, deployWebappId)) {
+                replyAsSun(msg, "I think there's a deploy already going on. " +
+                    "If that's not the case, take it up with Jenkins.");
+                return;
+            }
+            const deployBranch = msg.match[1];
+            const caller = msg.user;
+            const postData = {
+                "GIT_REVISION": deployBranch,
+                // In theory this should be an email address but we actually
+                // only care about names for the script, so we make up
+                // a 'fake' email that yields our name.
+                "BUILD_USER_ID_FROM_SCRIPT": caller + "@khanacademy.org"
+            };
 
-        const deployBranch = msg.match[1];
-        const caller = msg.user;
-        const postData = {
-            "GIT_REVISION": deployBranch,
-            // In theory this should be an email address but we actually
-            // only care about names for the script, so we make up
-            // a 'fake' email that yields our name.
-            "BUILD_USER_ID_FROM_SCRIPT": caller + "@khanacademy.org"
-        };
+            runJobOnJenkins(msg, "deploy-via-multijob", postData,
+                "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+        });
+    });
+}
 
-        runJobOnJenkins(msg, "deploy-via-multijob", postData,
-                        "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+function handleNewStyleDeploy(msg, deployState) {
+    return validateUserAuth(msg).then(() => {
+        jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+            if (deployIsRunning(deployState, deployWebappId)) {
+                replyAsSun(msg, "I think there's a deploy already going on. " +
+                    "If that's not the case, take it up with Jenkins.");
+                return;
+            }
 
+            const deployBranch = msg.match[1];
+            const caller = msg.user;
+            const postData = {
+                "GIT_REVISION": deployBranch,
+                "DEPLOYER_USERNAME": "@" + caller
+            };
+
+            runJobOnJenkins(msg, "deploy/deploy-webapp", postData,
+                "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+        });
     });
 }
 
 function handleSetDefault(msg, deployState) {
     return validateUserAuth(msg).then(() => {
-        if (!pipelineStepIsValid(deployState, "set-default-start")) {
-            wrongPipelineStep(msg, "set-default");
-            return;
-        }
-        const postData = {
-            "TOKEN": deployState.TOKEN
-        };
-        runJobOnJenkins(msg, "deploy-set-default", postData,
-                        "Telling Jenkins to set `" + deployState.GIT_TAG +
-                        "` as the default.");
+        jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+            validatePipelineStep("set-default-start", deployState, deployWebappId).then(isValid => {
+                if (!isValid) {
+                    return wrongPipelineStep(msg, "set-default");
+                }
+                if (deployWebappId) {
+                    // New-style deploy, just need to hit the "continue" button.
+                    replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
+                               "Telling Jenkins to set default");
+                    const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
+                    runOnJenkins(null, path, {}, null, false);
+                } else {
+                    // Old-style deploy, need to start the next job.
+                    const postData = {
+                        "TOKEN": deployState.TOKEN
+                    };
+                    runJobOnJenkins(msg, "deploy-set-default", postData,
+                                    "Telling Jenkins to set `" +
+                                     deployState.GIT_TAG + "` as the default.");
+                }
+            });
+        });
     });
 }
 
@@ -931,7 +1006,7 @@ function handleAbort(msg, deployState) {
                     runningJob.jobName +
                     " #" + runningJob.jobId + ".");
             }
-        } else if (!deployState.POSSIBLE_NEXT_STEPS) {
+        } else if (!deployState || !deployState.POSSIBLE_NEXT_STEPS) {
             // If no deploy is in progress, we had better not abort.
             replyAsSun(msg, "I don't think there's a deploy going.  If you need " +
                 "to roll back the production servers because you noticed " +
@@ -940,14 +1015,14 @@ function handleAbort(msg, deployState) {
                 "deploy going, then I'm confused and you'll have to talk " +
                 "to Jenkins yourself.");
         } else {
-            // Otherwise, we're between jobs in a deploy, and we should determine
-            // from the deploy state what to do.
+            // Otherwise, we're between jobs in an (old-style) deploy,
+            // and we should determine from the deploy state what to do.
             const postData = {
                 "TOKEN": deployState.TOKEN,
                 "WHY": "aborted"
             };
             let response;
-            if (pipelineStepIsValid(deployState, "set-default-start")) {
+            if (isPossibleNextStep("set-default-start", deployState)) {
                 // If no build is running, and we could set default, we can just as
                 // easily just give up
                 postData.STATUS = "failure";
@@ -965,21 +1040,32 @@ function handleAbort(msg, deployState) {
 }
 
 function handleFinish(msg, deployState) {
-    if (!pipelineStepIsValid(deployState, "finish-with-success")) {
-        wrongPipelineStep(msg, "finish-with-success");
-        return;
-    }
-    let postData = {
-        "TOKEN": deployState.TOKEN,
-        "STATUS": "success"
-    };
-    runJobOnJenkins(msg, "deploy-finish", postData,
-        "Telling Jenkins to finish this deploy!");
-
-    // wait a little while before notifying the next person.
-    // hopefully the happy dance has appeared by then, if not
-    // humans will have to figure it out themselves.
-    setTimeout(() => doQueueNext(msg, deployState), 20000);
+    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+        validatePipelineStep("finish-with-success", deployState, deployWebappId).then(isValid => {
+            if (!isValid) {
+                return wrongPipelineStep(msg, "finish-with-success");
+            }
+            if (deployWebappId) {
+                // New-style deploy, just need to hit the "continue" button.
+                replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
+                           "Telling Jenkins to finish this deploy!");
+                const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
+                runOnJenkins(null, path, {}, null, false);
+            } else {
+                // Old-style deploy, need to start the next job.
+                const postData = {
+                    "TOKEN": deployState.TOKEN,
+                    "STATUS": "success"
+                };
+                runJobOnJenkins(msg, "deploy-finish", postData,
+                                "Telling Jenkins to finish this deploy!");
+            }
+            // wait a little while before notifying the next person.
+            // hopefully the happy dance has appeared by then, if not
+            // humans will have to figure it out themselves.
+            setTimeout(() => doQueueNext(msg, deployState), 20000);
+        });
+    });
 }
 
 function handleEmergencyRollback(msg, _deployState) {
@@ -1031,6 +1117,7 @@ const textHandlerMap = new Map([
     [/^prompt znd cleanup$/i, handleNotifyZndOwners],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
+    [/^n(?:ew)?deploy\s+(?:branch\s+)?([^,]*)/i, handleNewStyleDeploy],
     // Set the branch in testing to the default branch
     [/^set.default$/i, handleSetDefault],
     // Abort the current deployment step
@@ -1058,6 +1145,7 @@ const emojiHandlerMap = new Map([
     [/^:(?:test-tube|100):\s*([^,]*)/i, handleMakeCheck],
     [/^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\s*([^,]*)/i,
      handleDeploy],
+    [/^:new:\s*([^,]*)/i, handleNewStyleDeploy],
     [/^:rocket:/i, handleSetDefault],
     [/^:(?:skull|skull_and_crossbones|sad_mac|sadpanda|party_parrot_sad):/i,
      handleAbort],
