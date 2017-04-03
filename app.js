@@ -911,7 +911,7 @@ function handleMakeCheck(msg, _deployState) {
     });
 }
 
-function handleDeploy(msg, deployState) {
+function handleOldStyleDeploy(msg, deployState) {
     return validateUserAuth(msg).then(() => {
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
             if (deployIsRunning(deployState, deployWebappId)) {
@@ -935,7 +935,7 @@ function handleDeploy(msg, deployState) {
     });
 }
 
-function handleNewStyleDeploy(msg, deployState) {
+function handleDeploy(msg, deployState) {
     return validateUserAuth(msg).then(() => {
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
             if (deployIsRunning(deployState, deployWebappId)) {
@@ -1117,7 +1117,7 @@ const textHandlerMap = new Map([
     [/^prompt znd cleanup$/i, handleNotifyZndOwners],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
-    [/^n(?:ew)?deploy\s+(?:branch\s+)?([^,]*)/i, handleNewStyleDeploy],
+    [/^o(?:ld)?deploy\s+(?:branch\s+)?([^,]*)/i, handleOldStyleDeploy],
     // Set the branch in testing to the default branch
     [/^set.default$/i, handleSetDefault],
     // Abort the current deployment step
@@ -1145,7 +1145,7 @@ const emojiHandlerMap = new Map([
     [/^:(?:test-tube|100):\s*([^,]*)/i, handleMakeCheck],
     [/^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\s*([^,]*)/i,
      handleDeploy],
-    [/^:new:\s*([^,]*)/i, handleNewStyleDeploy],
+    [/^:regular_dino:\s*([^,]*)/i, handleOldStyleDeploy],
     [/^:rocket:/i, handleSetDefault],
     [/^:(?:skull|skull_and_crossbones|sad_mac|sadpanda|party_parrot_sad):/i,
      handleAbort],
