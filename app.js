@@ -882,14 +882,14 @@ function handleDeleteZnd(msg, _deployState) {
     const postData = {
         "ZND_NAME": znd_name,
     };
-    runJobOnJenkins(msg, "delete-znd", postData, responseText);
+    runJobOnJenkins(msg, "deploy/delete-znd", postData, responseText);
 }
 
 
 function handleNotifyZndOwners(msg, _deployState) {
     const responseText = ("Okay, I'll check in with ZND owners about " +
                           "cleaning up their ZNDs");
-    runJobOnJenkins(msg, "notify-znd-owners", {}, responseText);
+    runJobOnJenkins(msg, "deploy/notify-znd-owners", {}, responseText);
 }
 
 
