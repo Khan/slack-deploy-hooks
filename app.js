@@ -195,7 +195,7 @@ function onError(msg, err) {
                         "logs.");
     }
     // The error message may come after another message.  Wait a second to
-    // encourage to put the messages in the right order.
+    // encourage slack to put the messages in the right order.
     setTimeout(() => replyAsSun(msg, errorMessage), 1000);
 }
 
@@ -472,15 +472,6 @@ function jobPath(jobName) {
 
 
 /**
- * Get the current state of the deploy from Jenkins.
- *
- * Returns a promise for the state.
- */
-function getDeployState() {
-    return requestQ("https://jenkins.khanacademy.org/deploy-state.json");
-}
-
-/**
  * Returns a promise for the current job ID if one is running, or false if not.
  */
 function jenkinsJobStatus(jobName) {
@@ -509,34 +500,6 @@ function jenkinsJobStatus(jobName) {
         throw new SunError("Jenkins won't tell me what's running!  " +
                            "You'll have to talk to it yourself.");
     });
-}
-
-/**
- * Get the current running jobs from Jenkins.
- *
- * We check the three jobs deploy-via-multijob, deploy-set-default, and
- * deploy-finish.
- *
- * Returns a promise for an object with two keys, jobName (string) and jobId
- * (number), for the currently running job, or null if there is no job running.
- *
- * If, somehow, multiple such jobs are running, return the first one.  This
- * shouldn't happen.
- */
-function getRunningJob() {
-    const jobs = ["deploy-via-multijob", "deploy-set-default", "deploy-finish",
-                  "deploy/deploy-webapp"];
-    return Q.all(jobs.map(jenkinsJobStatus))
-        .then(jobIds => {
-            // `jobIds` is an array of jenkins job IDs corresponding to the names in
-            // `jobs` (or null if there is none).  We want to find the first non-null
-            // ID, along with the name to which it corresponds.
-            const runningIndex = jobIds.findIndex((id, _index) => id);
-            return {
-                jobName: jobs[runningIndex],
-                jobId: jobIds[runningIndex],
-            };
-        });
 }
 
 // postData is an object, which we will encode and post to either
@@ -711,47 +674,32 @@ function setTopic(msg, topic) {
 // Slack: sun wukong the monkey king
 //--------------------------------------------------------------------------
 
-function deployIsRunning(deployState, deployWebappId) {
-    // deployState is set for old-style deploys, and deploy-webapp is
-    // running for new-style deploys.
-    return ((deployState && !!deployState.POSSIBLE_NEXT_STEPS) ||
-            !!deployWebappId);
-}
-
-function isPossibleNextStep(step, deployState) {
-    return (deployState.POSSIBLE_NEXT_STEPS.indexOf(step) !== -1 ||
-            deployState.POSSIBLE_NEXT_STEPS.indexOf('<all>') !== -1);
-}
-
 /**
  * Return a promise that resolves to whether the pipeline step is valid.
  */
-function validatePipelineStep(step, deployState, deployWebappId) {
-    if (deployState && deployState.POSSIBLE_NEXT_STEPS) {
-        // Old-style deploy
-        return Q(isPossibleNextStep(step, deployState));
-    } else if (deployWebappId) {
-        // New-style deploy.
-        const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/`;
-        let expectedName = null;
-        if (step === "set-default-start") {
-            // The "/input" form is where you click to proceed or abort.
-            // The 'proceed' button has the following name on it.
-            expectedName = "SetDefault";
-        } else if (step == "finish-with-success") {
-            expectedName = "Finish";
-        }
-
-        if (expectedName) {
-            return getOrPostToJenkins(path, null, false).then(body => {
-                return body.indexOf(`name="${expectedName}"`) !== -1;
-            }).catch(_err => {  // 404: no inputs expected right now at all
-                return false;
-            });
-        } else {
-            return Q(false);
-        }
+function validatePipelineStep(step, deployWebappId) {
+    let expectedName = null;
+    if (step === "set-default-start") {
+        // The "/input" form is where you click to proceed or abort.
+        // The 'proceed' button has the following name on it.
+        expectedName = "SetDefault";
+    } else if (step == "finish-with-success") {
+        expectedName = "Finish";
     }
+
+    if (!expectedName) {
+        return Q(false);     // not a step we were expecting to see next!
+    }
+    if (!deployWebappId) {
+        return Q(false);     // a deploy isn't even running now!
+    }
+
+    const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/`;
+    return getOrPostToJenkins(path, null, false).then(body => {
+        return body.indexOf(`name="${expectedName}"`) !== -1;
+    }).catch(_err => {  // 404: no inputs expected right now at all
+        return false;
+    });
 }
 
 function wrongPipelineStep(msg, badStep) {
@@ -775,36 +723,39 @@ function validateUserAuth(msg) {
     });
 }
 
-function handleHelp(msg, _deployState) {
+function handleHelp(msg) {
     replyAsSun(msg, help_text);
 }
 
-function handleEmojiHelp(msg, _deployState) {
+function handleEmojiHelp(msg) {
     replyAsSun(msg, emoji_help_text);
 }
 
-function handlePing(msg, _deployState) {
+function handlePing(msg) {
     replyAsSun(msg, "I AM THE MONKEY KING!");
 }
 
-function handleFingersCrossed(msg, _deployState) {
+function handleFingersCrossed(msg) {
     replyAsSun(msg, "Okay, I've crossed my fingers.  :fingerscrossed:");
 }
 
-function handleState(msg, deployState) {
-    const prettyState = JSON.stringify(deployState, null, 2);
-    getRunningJob().then(job => {
-        const prettyRunningJob = JSON.stringify(job, null, 2);
-        replyAsSun(msg, "Here's the state of the deploy: ```" +
-            `\n${prettyRunningJob}\n\n${prettyState}\n` + "```");
+function handleState(msg) {
+    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+        let text;
+        if (deployWebappId) {
+            text = `deploy/deploy-webapp #${deployWebappId} is currently running.`;
+        } else {
+            text = "No deploy is currently running.";
+        }
+        replyAsSun(msg, text);
     });
 }
 
-function handlePodBayDoors(msg, _deployState) {
+function handlePodBayDoors(msg) {
     wrongPipelineStep(msg, "open the pod bay doors");
 }
 
-function handleQueueMe(msg, _deployState) {
+function handleQueueMe(msg) {
     return validateUserAuth(msg).then(() => {
         let user = msg.user;
         const arg = msg.match[1].trim();
@@ -823,7 +774,7 @@ function handleQueueMe(msg, _deployState) {
     });
 }
 
-function doQueueNext(msg, _deployState) {
+function doQueueNext(msg) {
     return getTopic(msg).then(topic => {
         const newDeployer = topic.queue[0];
         const newTopic = {
@@ -853,14 +804,14 @@ function doQueueNext(msg, _deployState) {
     });
 }
 
-function handleQueueNext(msg, _deployState) {
+function handleQueueNext(msg) {
     // TODO(csilvers): complain if they do 'next' after the happy dance,
     // since we do that automatically now.
-    doQueueNext(msg, _deployState);
+    doQueueNext(msg);
 }
 
 
-function handleRemoveMe(msg, _deployState) {
+function handleRemoveMe(msg) {
     let user = msg.user;
     const arg = msg.match[1].trim();
     if (arg && arg !== "me") {
@@ -876,7 +827,7 @@ function handleRemoveMe(msg, _deployState) {
 }
 
 
-function handleDeleteZnd(msg, _deployState) {
+function handleDeleteZnd(msg) {
     const znd_name = msg.match[1].trim();
     const responseText = "Okay, I'll ask Jenkins to delete that ZND!";
     const postData = {
@@ -886,14 +837,14 @@ function handleDeleteZnd(msg, _deployState) {
 }
 
 
-function handleNotifyZndOwners(msg, _deployState) {
+function handleNotifyZndOwners(msg) {
     const responseText = ("Okay, I'll check in with ZND owners about " +
                           "cleaning up their ZNDs");
     runJobOnJenkins(msg, "deploy/notify-znd-owners", {}, responseText);
 }
 
 
-function handleMakeCheck(msg, _deployState) {
+function handleMakeCheck(msg) {
     jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
         const deployBranch = msg.match[1];
         const postData = {
@@ -911,34 +862,10 @@ function handleMakeCheck(msg, _deployState) {
     });
 }
 
-function handleOldStyleDeploy(msg, deployState) {
+function handleDeploy(msg) {
     return validateUserAuth(msg).then(() => {
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
-            if (deployIsRunning(deployState, deployWebappId)) {
-                replyAsSun(msg, "I think there's a deploy already going on. " +
-                    "If that's not the case, take it up with Jenkins.");
-                return;
-            }
-            const deployBranch = msg.match[1];
-            const caller = msg.user;
-            const postData = {
-                "GIT_REVISION": deployBranch,
-                // In theory this should be an email address but we actually
-                // only care about names for the script, so we make up
-                // a 'fake' email that yields our name.
-                "BUILD_USER_ID_FROM_SCRIPT": caller + "@khanacademy.org"
-            };
-
-            runJobOnJenkins(msg, "deploy-via-multijob", postData,
-                "Telling Jenkins to deploy branch `" + deployBranch + "`.");
-        });
-    });
-}
-
-function handleDeploy(msg, deployState) {
-    return validateUserAuth(msg).then(() => {
-        jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
-            if (deployIsRunning(deployState, deployWebappId)) {
+            if (deployWebappId) {
                 replyAsSun(msg, "I think there's a deploy already going on. " +
                     "If that's not the case, take it up with Jenkins.");
                 return;
@@ -957,139 +884,68 @@ function handleDeploy(msg, deployState) {
     });
 }
 
-function handleSetDefault(msg, deployState) {
+function handleSetDefault(msg) {
     return validateUserAuth(msg).then(() => {
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
-            validatePipelineStep("set-default-start", deployState, deployWebappId).then(isValid => {
+            validatePipelineStep("set-default-start", deployWebappId).then(isValid => {
                 if (!isValid) {
                     return wrongPipelineStep(msg, "set-default");
                 }
-                if (deployWebappId) {
-                    // New-style deploy, just need to hit the "continue" button.
-                    replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
-                               "Telling Jenkins to set default");
-                    const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
-                    runOnJenkins(null, path, {}, null, false);
-                } else {
-                    // Old-style deploy, need to start the next job.
-                    const postData = {
-                        "TOKEN": deployState.TOKEN
-                    };
-                    runJobOnJenkins(msg, "deploy-set-default", postData,
-                                    "Telling Jenkins to set `" +
-                                     deployState.GIT_TAG + "` as the default.");
-                }
+                // Hit the "continue" button.
+                replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
+                           "Telling Jenkins to set default");
+                const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
+                runOnJenkins(null, path, {}, null, false);
             });
         });
     });
 }
 
-function handleAbort(msg, deployState) {
-    getRunningJob().then(runningJob => {
-        if (runningJob.jobName) {
+function handleAbort(msg) {
+    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+        if (deployWebappId) {
             // There's a job running, so we should probably cancel it.
-            if (runningJob.jobName === "deploy-finish") {
-                // We shouldn't cancel a deploy-finish.  If we need to roll
-                // back, we now need to do an emergency rollback; otherwise we
-                // should just let it finish and then do our thing.
-                replyAsSun(msg, "I think there's currently a deploy-finish job " +
-                    "running.  If you need to roll back, you will " +
-                    "need to do an emergency rollback (:speech_balloon: " +
-                    "_“sun: emergency rollback”_).  If not, just let it " +
-                    "finish, or <https://jenkins.khanacademy.org/job/" +
-                    "deploy-finish/" + runningJob.jobId + "|check what it's" +
-                    "doing> yourself.");
-            } else {
-                // Otherwise, cancel the job.
-                cancelJobOnJenkins(msg, runningJob.jobName, runningJob.jobId,
-                    "Telling Jenkins to cancel " +
-                    runningJob.jobName +
-                    " #" + runningJob.jobId + ".");
-            }
-        } else if (!deployState || !deployState.POSSIBLE_NEXT_STEPS) {
+            cancelJobOnJenkins(msg, "deploy/deploy-webapp",
+                deployWebappId,
+                "Telling Jenkins to cancel deploy/deploy-webapp " +
+                "#" + deployWebappId + ".");
+        } else {
             // If no deploy is in progress, we had better not abort.
-            replyAsSun(msg, "I don't think there's a deploy going.  If you need " +
+            replyAsSun(msg,
+                "I don't think there's a deploy going.  If you need " +
                 "to roll back the production servers because you noticed " +
                 "some problems after a deploy finished, :speech_balloon: " +
                 "_“sun: emergency rollback”_.  If you think there's a " +
                 "deploy going, then I'm confused and you'll have to talk " +
                 "to Jenkins yourself.");
-        } else {
-            // Otherwise, we're between jobs in an (old-style) deploy,
-            // and we should determine from the deploy state what to do.
-            const postData = {
-                "TOKEN": deployState.TOKEN,
-                "WHY": "aborted"
-            };
-            let response;
-            if (isPossibleNextStep("set-default-start", deployState)) {
-                // If no build is running, and we could set default, we can just as
-                // easily just give up
-                postData.STATUS = "failure";
-                response = "abort";
-            } else {
-                // Otherwise, we'd better roll back.
-                postData.STATUS = "rollback";
-                postData.ROLLBACK_TO = deployState.ROLLBACK_TO;
-                response = "abort and roll back";
-            }
-            runJobOnJenkins(msg, "deploy-finish", postData,
-                "Telling Jenkins to " + response + " this deploy.");
         }
     });
 }
 
-function handleFinish(msg, deployState) {
+function handleFinish(msg) {
     jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
-        validatePipelineStep("finish-with-success", deployState, deployWebappId).then(isValid => {
+        validatePipelineStep("finish-with-success", deployWebappId).then(isValid => {
             if (!isValid) {
                 return wrongPipelineStep(msg, "finish-with-success");
             }
-            if (deployWebappId) {
-                // New-style deploy, just need to hit the "continue" button.
-                replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
-                           "Telling Jenkins to finish this deploy!");
-                const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
-                runOnJenkins(null, path, {}, null, false);
-            } else {
-                // Old-style deploy, need to start the next job.
-                const postData = {
-                    "TOKEN": deployState.TOKEN,
-                    "STATUS": "success"
-                };
-                runJobOnJenkins(msg, "deploy-finish", postData,
-                                "Telling Jenkins to finish this deploy!");
-            }
+            // Hit the "continue" button.
+            replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
+                       "Telling Jenkins to finish this deploy!");
+            const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
+            runOnJenkins(null, path, {}, null, false);
             // wait a little while before notifying the next person.
             // hopefully the happy dance has appeared by then, if not
             // humans will have to figure it out themselves.
-            setTimeout(() => doQueueNext(msg, deployState), 20000);
+            setTimeout(() => doQueueNext(msg), 20000);
         });
     });
 }
 
-function handleEmergencyRollback(msg, _deployState) {
+function handleEmergencyRollback(msg) {
     const jobname = "---EMERGENCY-ROLLBACK---";
     runJobOnJenkins(msg, jobname, {},
         "Telling Jenkins to roll back the live site to a safe " +
         "version");
-}
-
-// fn takes a message object and the deploy state.
-function handleDeploymentMessage(fn, msg) {
-    return getDeployState()
-        .spread((res, body) => {
-            if (res.statusCode === 404) {
-                return {};
-            } else if (res.statusCode > 299) {
-                logHttpError(res, body);
-                throw new SunError("Jenkins won't tell me what's going on.  " +
-                                   "You'll have to try it yourself.");
-            } else {
-                return JSON.parse(body);
-            }
-        })
-        .then(state => fn(msg, state));
 }
 
 const textHandlerMap = new Map([
@@ -1117,7 +973,6 @@ const textHandlerMap = new Map([
     [/^prompt znd cleanup$/i, handleNotifyZndOwners],
     // Begin the deployment process for the specified branch
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
-    [/^o(?:ld)?deploy\s+(?:branch\s+)?([^,]*)/i, handleOldStyleDeploy],
     // Set the branch in testing to the default branch
     [/^set.default$/i, handleSetDefault],
     // Abort the current deployment step
@@ -1145,7 +1000,6 @@ const emojiHandlerMap = new Map([
     [/^:(?:test-tube|100):\s*([^,]*)/i, handleMakeCheck],
     [/^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\s*([^,]*)/i,
      handleDeploy],
-    [/^:regular_dino:\s*([^,]*)/i, handleOldStyleDeploy],
     [/^:rocket:/i, handleSetDefault],
     [/^:(?:skull|skull_and_crossbones|sad_mac|sadpanda|party_parrot_sad):/i,
      handleAbort],
@@ -1183,10 +1037,10 @@ app.post("/", (req, res) => {
         const match = rx.exec(message.text);
         if (match !== null) {
             message.match = match;
-            handleDeploymentMessage(fn, message)
+            Q(fn(message))
             .catch(err => onError(message, err))
             .then(() => res.send({}));
-            return;
+            break;
         }
     }
 });
