@@ -1,6 +1,6 @@
 # Template file, actual app.yaml is built from this via build-scripts/predeploy
 runtime: nodejs
-vm: true
+env: flex
 api_version: 1
 
 manual_scaling:
