@@ -863,6 +863,21 @@ function handleMakeCheck(msg) {
 }
 
 function handleDeploy(msg) {
+    // Check that it's not Friday
+    const d = new Date();
+    if (d.getDay() === 5) {
+        replyAsSun(msg,
+            ":frog: It's Friday! Please don't make changes that potentially " + 
+            "affect many parts of the site. If your change affects only " + 
+            "a small surface area that you can verify manually, go " + 
+            "forth and deploy with `sun deploy-not-risky [branch-name]`");
+        return Promise.resolve();
+    } else {
+        return handleSafeDeploy(msg);
+    }
+}
+
+function handleSafeDeploy(msg) {
     return validateUserAuth(msg).then(() => {
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
             if (deployWebappId) {
@@ -971,8 +986,10 @@ const textHandlerMap = new Map([
     [/^delete(?: znd)?\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
     // Begin the deployment process for the specified branch
     [/^prompt znd cleanup$/i, handleNotifyZndOwners],
-    // Begin the deployment process for the specified branch
+    // Begin the deployment process for the specified branch (if not Friday)
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
+    // Begin the deployment process for the (non-risky) branch
+    [/^deploy-not-risky\s+(?:branch\s+)?([^,]*)/i, handleSafeDeploy],
     // Set the branch in testing to the default branch
     [/^set.default$/i, handleSetDefault],
     // Abort the current deployment step
