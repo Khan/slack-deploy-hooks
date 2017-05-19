@@ -865,6 +865,9 @@ function handleMakeCheck(msg) {
 function handleDeploy(msg) {
     // Check that it's not Friday
     const d = new Date();
+    // Adjust for time zone (UTC)
+    // If (d.getHours() - 7) is negative, d moves back a day
+    d.setHours(d.getHours() - 7);
     if (d.getDay() === 5) {
         replyAsSun(msg,
             ":frog: It's Friday! Please don't make changes that potentially " + 
