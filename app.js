@@ -873,7 +873,7 @@ function handleDeploy(msg) {
             ":frog: It's Friday! Please don't make changes that potentially " + 
             "affect many parts of the site. If your change affects only " + 
             "a small surface area that you can verify manually, go " + 
-            "forth and deploy with `sun deploy-not-risky [branch-name]`");
+            "forth and deploy with `sun: deploy-not-risky [branch-name]`");
         return Promise.resolve();
     } else {
         return handleSafeDeploy(msg);
