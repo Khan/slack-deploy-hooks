@@ -37,6 +37,7 @@ const help_text = `*Commands*
   - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
   - \`sun: delete znd [znd name]\` - ask Jenkins to delete the given znd
   - \`sun: prompt znd cleanup\` - check in with znd owners about cleaning up their znd
+  - \`sun: history\` - print the changelogs for the 5 most recent successful deploys
   - \`sun: deploy [branch name]\` - deploy a particular branch to production
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
   - \`sun: abort\` - abort a deploy (at any point during the process)
@@ -50,6 +51,7 @@ const emoji_help_text = `:speech_balloon:
   :sun::fast_forward: next
   :sun::x: remove
   :sun::test-tube: test
+  :sun::amphora: history
   :sun::treeeee: deploy
   :sun::rocket: set default
   :sun::skull: abort
@@ -844,6 +846,15 @@ function handleNotifyZndOwners(msg) {
 }
 
 
+function handleHistory(msg) {
+    const responseText = (
+        "Asking jenkins to print the changelog for the last 5 deploys. " +
+        "(This may take a minute.)");
+    runJobOnJenkins(msg, "deploy/deploy-history",
+                    {"SLACK_CHANNEL": msg.channel}, responseText);
+}
+
+
 function handleMakeCheck(msg) {
     jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
         const deployBranch = msg.match[1];
@@ -989,6 +1000,8 @@ const textHandlerMap = new Map([
     [/^delete(?: znd)?\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
     // Begin the deployment process for the specified branch
     [/^prompt znd cleanup$/i, handleNotifyZndOwners],
+    // Print recent deploy history
+    [/^history$/i, handleHistory],
     // Begin the deployment process for the specified branch (if not Friday)
     [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
     // Begin the deployment process for the (non-risky) branch
@@ -1018,6 +1031,7 @@ const emojiHandlerMap = new Map([
     [/^:(?:x|negative_squared_cross_mark|heavy_multiplication_x):\s*(.*)$/i,
      handleRemoveMe],
     [/^:(?:test-tube|100):\s*([^,]*)/i, handleMakeCheck],
+    [/^:amphora:/i, handleHistory],
     [/^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\s*([^,]*)/i,
      handleDeploy],
     [/^:rocket:/i, handleSetDefault],
