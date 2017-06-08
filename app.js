@@ -705,7 +705,7 @@ function validatePipelineStep(step, deployWebappId) {
 }
 
 function wrongPipelineStep(msg, badStep) {
-    replyAsSun(msg, `:hal9000: I'm sorry, @${msg.user}.  I'm ` +
+    replyAsSun(msg, `:hal9000: I'm sorry, <@${msg.user}>.  I'm ` +
         "afraid I can't let you do that.  (It's not time to " +
         `${badStep}.  If you disagree, bring it up with Jenkins.)`);
 }
