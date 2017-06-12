@@ -31,18 +31,19 @@ const googleKey = require("./email_role_checker_secret.json");
 
 const help_text = `*Commands*
   - \`sun: help\` - show the help text
-  - \`sun: queue [user]\` - add someone to the deploy queue (user is "me" or of the form \`user1 + user2 (optional note)\`)
+  - \`sun: queue [username]\` - add someone to the deploy queue (user is "me" or of the form \`user1 + user2 (optional note)\`)
   - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
-  - \`sun: remove [user]\` - remove someone from the deploy queue (user is "me" or a username)
-  - \`sun: test [branch name]\` - run tests on a particular branch, independent of a deploy
-  - \`sun: delete znd [znd name]\` - ask Jenkins to delete the given znd
+  - \`sun: remove [username]\` - remove someone from the deploy queue (user is "me" or a username)
+  - \`sun: test <branch name>\` - run tests on a particular branch, independent of a deploy
+  - \`sun: delete znd <znd name>\` - ask Jenkins to delete the given znd
   - \`sun: prompt znd cleanup\` - check in with znd owners about cleaning up their znd
   - \`sun: history\` - print the changelogs for the 5 most recent successful deploys
-  - \`sun: deploy [branch name]\` - deploy a particular branch to production
+  - \`sun: deploy <branch name> [+ <branch name> ...] [, cc @<username> [+ @<username> ...]]\` - deploy a particular branch (or merge multiple branches) to production, optionally CC another user(s)
   - \`sun: set default\` - after a deploy succeeds, sets the deploy as default
   - \`sun: abort\` - abort a deploy (at any point during the process)
   - \`sun: finish\` - do the last step in deploy, to merge with master and let the next person deploy
   - \`sun: emergency rollback\` - roll back the production site outside of the deploy process
+  - \`sun: cc @<username> [+ <username> ...]\` - CC user(s) so they get notified during the current deploy
 `;
 
 const emoji_help_text = `:speech_balloon:
@@ -83,6 +84,11 @@ const DEPLOYER_REGEX = /^([^(]*)(?:\((.*)\))?$/;
 // Any number of hyphens, en dashes, and em dashes.
 const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 
+// Internal field separator
+// TODO(drosile): Use the field separator to split out commands and arguments
+// so we can have simpler, more legible regular expressions. Alternatively,
+// we could look into using an option-parsing library
+const FIELD_SEP = ',';
 
 // CSRF token used to submit Jenkins POST requests - in Jenkins-land, this is
 // referred to as a "crumb". This value is retrieved when the first Jenkins
@@ -90,6 +96,14 @@ const NO_DEPLOYER_REGEX = /^[-–—]*$/;
 // Jenkins CSRF tokens apparently do not expire.
 let JENKINS_CSRF_TOKEN = null;
 
+// User list for the bot to CC on deploy messages. This gets reset by
+// handleSafeDeploy, and can be added to as part of initiating the deploy
+// or with the `cc` command
+// TODO(drosile): Figure out a way to avoid the statefulness implied by this,
+// or at least to minimize its effects.
+// TODO(drosile): Apply the CC list only to specific actions. Currently it will
+// CC the list for any action, even if it is unrelated to the current deploy.
+let CC_USERS = [];
 
 // Email addresses of users authorized to deploy. Set by parseIAMPolicy().
 let VALID_DEPLOYER_EMAILS = new Set();
@@ -122,11 +136,16 @@ class SunError {
  * @param reply The text you want embedded in the message
  */
 function sunMessage(msg, reply) {
+    let message_text = `<@${msg.user}> `;
+    if (CC_USERS.length != 0) {
+      message_text += `(cc ${CC_USERS.join(', ')}) `;
+    }
+    message_text += reply;
     return {
         username: "Sun Wukong",
         icon_emoji: ":monkey_face:",
         channel: msg.channel,
-        text: `<@${msg.user}> ${reply}`
+        text: message_text
     };
 }
 
@@ -263,6 +282,16 @@ function slackAPI(call, params) {
     });
 }
 
+/**
+ * Parse a list of users and add them to the CC_USERS variable for notification
+ * of deploys.
+ * TODO(drosile): uniq and/or validate CC_USERS as they are added
+ */
+function addUsersToCCList(users_str) {
+  users_str.split(/\s*\+\s*/)
+           .map(username => username.startsWith('@') ? username.substr(1) : username)
+           .map(username => CC_USERS.push(`<@${username}>`));
+}
 
 //--------------------------------------------------------------------------
 // Developer email validation
@@ -828,6 +857,19 @@ function handleRemoveMe(msg) {
     });
 }
 
+function handleCCUsers(msg) {
+    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+        if (deployWebappId) {
+            let ccUsers = msg.match[1];
+            addUsersToCCList(ccUsers);
+            replyAsSun(msg, "Okay, I've added them to the notification list for this deploy.");
+        } else {
+            replyAsSun(msg, "It doesn't look like there is any deploy going on.");
+        }
+        return;
+    });
+}
+
 
 function handleDeleteZnd(msg) {
     const znd_name = msg.match[1].trim();
@@ -901,6 +943,11 @@ function handleSafeDeploy(msg) {
             }
 
             const deployBranch = msg.match[1];
+            CC_USERS = [];
+            const ccUsers = msg.match[2];
+            if (!!ccUsers) {
+              addUsersToCCList(ccUsers);
+            }
             const caller = msg.user;
             const postData = {
                 "GIT_REVISION": deployBranch,
@@ -938,6 +985,7 @@ function handleAbort(msg) {
                 deployWebappId,
                 "Telling Jenkins to cancel deploy/deploy-webapp " +
                 "#" + deployWebappId + ".");
+            CC_USERS = [];
         } else {
             // If no deploy is in progress, we had better not abort.
             replyAsSun(msg,
@@ -960,6 +1008,7 @@ function handleFinish(msg) {
             // Hit the "continue" button.
             replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
                        "Telling Jenkins to finish this deploy!");
+            CC_USERS = [];
             const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
             runOnJenkins(null, path, {}, null, false);
             // wait a little while before notifying the next person.
@@ -995,17 +1044,19 @@ const textHandlerMap = new Map([
     // Remove the sender from the deploy queue
     [/^(?:remove|dequeue)\s*(.*)$/i, handleRemoveMe],
     // Run tests on a branch outside the deploy process
-    [/^test\s+(?:branch\s+)?([^,]*)$/i, handleMakeCheck],
+    [new RegExp("^test\\s+(?:branch\\s+)?([^" + FIELD_SEP + "]*)$", 'i'), handleMakeCheck],
     // Delete a given znd
-    [/^delete(?: znd)?\s+(?:znd\s+)?([^,]*)$/i, handleDeleteZnd],
+    [new RegExp("^delete(?: znd)?\\s+(?:znd\\s+)?([^" + FIELD_SEP + "]*)$", 'i'), handleDeleteZnd],
     // Begin the deployment process for the specified branch
     [/^prompt znd cleanup$/i, handleNotifyZndOwners],
     // Print recent deploy history
     [/^history$/i, handleHistory],
     // Begin the deployment process for the specified branch (if not Friday)
-    [/^deploy\s+(?:branch\s+)?([^,]*)/i, handleDeploy],
+    [new RegExp("^deploy\\s+(?:branch\\s+)?([^" + FIELD_SEP + "]*)(?:,(?:\\s+)?cc(?:[\\s:]+)([^" + FIELD_SEP + "]+))?$", 'i'),
+     handleDeploy],
     // Begin the deployment process for the (non-risky) branch
-    [/^deploy-not-risky\s+(?:branch\s+)?([^,]*)/i, handleSafeDeploy],
+    [new RegExp("^deploy-not-risky\\s+(?:branch\\s+)?([^" + FIELD_SEP + "]*)(?:,(?:\\s+)?cc(?:[\\s:]+)([^" + FIELD_SEP + "]+))?$", 'i'),
+     handleSafeDeploy],
     // Set the branch in testing to the default branch
     [/^set.default$/i, handleSetDefault],
     // Abort the current deployment step
@@ -1016,6 +1067,8 @@ const textHandlerMap = new Map([
     [/^yolo.*$/i, handleFinish],
     // Roll back production to the previous version after set default
     [/^emergency rollback.*$/i, handleEmergencyRollback],
+    // CC users on the current deploy (they will be at-mentioned in further messages)
+    [new RegExp("^cc\\s+([^" + FIELD_SEP + "]*)$", 'i'), handleCCUsers],
     // Catch-all: if we didn't get a valid command, send the help message.
     [/^.*$/i, handleHelp],
 ]);
@@ -1030,9 +1083,9 @@ const emojiHandlerMap = new Map([
     [/^:(?:arrow_right|arrow_forward|fast_forward):/i, handleQueueNext],
     [/^:(?:x|negative_squared_cross_mark|heavy_multiplication_x):\s*(.*)$/i,
      handleRemoveMe],
-    [/^:(?:test-tube|100):\s*([^,]*)/i, handleMakeCheck],
+    [new RegExp("^:(?:test-tube|100):\\s*([^" + FIELD_SEP + "]*)", 'i'), handleMakeCheck],
     [/^:amphora:/i, handleHistory],
-    [/^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\s*([^,]*)/i,
+    [new RegExp("^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\\s*([^" + FIELD_SEP + "]*)", 'i'),
      handleDeploy],
     [/^:rocket:/i, handleSetDefault],
     [/^:(?:skull|skull_and_crossbones|sad_mac|sadpanda|party_parrot_sad):/i,
