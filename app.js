@@ -1087,6 +1087,8 @@ const emojiHandlerMap = new Map([
     [/^:amphora:/i, handleHistory],
     [new RegExp("^:(?:ship|shipit|passenger_ship|pirate_ship|treeeee):\\s*([^" + FIELD_SEP + "]*)", 'i'),
      handleDeploy],
+    [new RegExp("^:confidence-high:\\s*([^" + FIELD_SEP + "]*)", 'i'),
+     handleSafeDeploy],
     [/^:rocket:/i, handleSetDefault],
     [/^:(?:skull|skull_and_crossbones|sad_mac|sadpanda|party_parrot_sad):/i,
      handleAbort],
