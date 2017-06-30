@@ -1020,7 +1020,7 @@ function handleFinish(msg) {
 }
 
 function handleEmergencyRollback(msg) {
-    const jobname = "---EMERGENCY-ROLLBACK---";
+    const jobname = "deploy/---EMERGENCY-ROLLBACK---";
     runJobOnJenkins(msg, jobname, {},
         "Telling Jenkins to roll back the live site to a safe " +
         "version");
