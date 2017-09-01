@@ -898,21 +898,15 @@ function handleHistory(msg) {
 
 
 function handleMakeCheck(msg) {
-    jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
-        const deployBranch = msg.match[1];
-        const postData = {
-            "GIT_REVISION": deployBranch,
-            "SLACK_CHANNEL": msg.channel,
-            "REPORT_RESULT": true,
-        };
-        let responseText = ("Telling Jenkins to run tests on branch `" +
-                            deployBranch + "`.");
-        if (runningJob) {
-            responseText += "  They'll run after the current webapp-test ";
-            responseText += "completes.";
-        }
-        runJobOnJenkins(msg, "deploy/webapp-test", postData, responseText);
-    });
+    const deployBranch = msg.match[1];
+    const postData = {
+        "GIT_REVISION": deployBranch,
+        "SLACK_CHANNEL": msg.channel,
+        "REPORT_RESULT": true,
+    };
+    let responseText = ("Telling Jenkins to run tests on branch `" +
+                        deployBranch + "`.");
+    runJobOnJenkins(msg, "deploy/webapp-test", postData, responseText);
 }
 
 function handleDeploy(msg) {
