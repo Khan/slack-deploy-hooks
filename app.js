@@ -1091,6 +1091,7 @@ const emojiHandlerMap = new Map([
      handleFinish],
     [/^:(?:heavy_check_mark|white_check_mark):/i, handleFinish],
     [/^:scream:/i, handleEmergencyRollback],
+    [new RegExp("^:phone:\\s+([^" + FIELD_SEP + "]*)$", 'i'), handleCCUsers],
     [/^.*$/i, handleEmojiHelp],
 ]);
 
