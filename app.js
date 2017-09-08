@@ -34,7 +34,7 @@ const help_text = `*Commands*
   - \`sun: queue [username]\` - add someone to the deploy queue (user is "me" or of the form \`user1 + user2 (optional note)\`)
   - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
   - \`sun: remove [username]\` - remove someone from the deploy queue (user is "me" or a username)
-  - \`sun: test <branch name>\` - run tests on a particular branch, independent of a deploy
+  - \`sun: test <branch name> [+ <branch name> ...]\` - run tests on a particular branch, independent of a deploy
   - \`sun: delete znd <znd name>\` - ask Jenkins to delete the given znd
   - \`sun: prompt znd cleanup\` - check in with znd owners about cleaning up their znd
   - \`sun: history\` - print the changelogs for the 5 most recent successful deploys
