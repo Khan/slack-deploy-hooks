@@ -289,7 +289,9 @@ function slackAPI(call, params) {
  * TODO(drosile): uniq and/or validate CC_USERS as they are added
  */
 function addUsersToCCList(users_str) {
-  users_str.split(/\s*\+\s*/).map(username => CC_USERS.push(username));
+  users_str.split(/\s*\+\s*/)
+    .map(username => username.startsWith('@') ? username : `@${username}`)
+    .map(username => CC_USERS.push(username));
 }
 
 //--------------------------------------------------------------------------
