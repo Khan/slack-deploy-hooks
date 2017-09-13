@@ -136,7 +136,7 @@ class SunError {
  * @param reply The text you want embedded in the message
  */
 function sunMessage(msg, reply) {
-    let message_text = `<@${msg.user}> `;
+    let message_text = `@${msg.user} `;
     if (CC_USERS.length != 0) {
       message_text += `(cc ${CC_USERS.join(', ')}) `;
     }
@@ -145,7 +145,8 @@ function sunMessage(msg, reply) {
         username: "Sun Wukong",
         icon_emoji: ":monkey_face:",
         channel: msg.channel,
-        text: message_text
+        text: message_text,
+        link_names: true
     };
 }
 
@@ -288,9 +289,7 @@ function slackAPI(call, params) {
  * TODO(drosile): uniq and/or validate CC_USERS as they are added
  */
 function addUsersToCCList(users_str) {
-  users_str.split(/\s*\+\s*/)
-           .map(username => username.startsWith('<') ? username : `<@${username}>`)
-           .map(username => CC_USERS.push(username));
+  users_str.split(/\s*\+\s*/).map(username => CC_USERS.push(username));
 }
 
 //--------------------------------------------------------------------------
@@ -734,7 +733,7 @@ function validatePipelineStep(step, deployWebappId) {
 }
 
 function wrongPipelineStep(msg, badStep) {
-    replyAsSun(msg, `:hal9000: I'm sorry, <@${msg.user}>.  I'm ` +
+    replyAsSun(msg, `:hal9000: I'm sorry, @${msg.user}.  I'm ` +
         "afraid I can't let you do that.  (It's not time to " +
         `${badStep}.  If you disagree, bring it up with Jenkins.)`);
 }
@@ -825,7 +824,7 @@ function doQueueNext(msg) {
             // string which we couldn't parse.
             if (newDeployer.usernames) {
                 mentions = newDeployer.usernames
-                    .map(username => `<@${username}>`)
+                    .map(username => `@${username}`)
                     .join(" ");
             } else {
                 mentions = newDeployer;
