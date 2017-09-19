@@ -134,11 +134,16 @@ class SunError {
  * @param msg the *incoming* hook data from Slack, as handled in the main
  *   route method
  * @param reply The text you want embedded in the message
+ * @param omitCurrentUser If set do not ping the current user (and cc's)
+ *   as part ofaa the message
  */
-function sunMessage(msg, reply) {
-    let message_text = `@${msg.user} `;
-    if (CC_USERS.length != 0) {
-      message_text += `(cc ${CC_USERS.join(', ')}) `;
+function sunMessage(msg, reply, omitCurrentUser) {
+    let message_text = '';
+    if (!omitCurrentUser) {
+        message_text += `@${msg.user} `;
+        if (CC_USERS.length != 0) {
+            message_text += `(cc ${CC_USERS.join(', ')}) `;
+        }
     }
     message_text += reply;
     return {
@@ -156,13 +161,14 @@ function sunMessage(msg, reply) {
  * @param msg the *incoming* message hook data from Slack
  * @param reply the text you want to send as the reply
  */
-function replyAsSun(msg, reply) {
+function replyAsSun(msg, reply, omitCurrentUser) {
     if (DEBUG) {
         console.log(`Sending: "${reply}"`);
     }
     // TODO(benkraft): more usefully handle any errors we get from this.
     // Except it's not clear what to do if posting to slack fails.
-    slackAPI("chat.postMessage", sunMessage(msg, reply)).catch(console.error);
+    slackAPI("chat.postMessage", sunMessage(msg, reply, omitCurrentUser))
+        .catch(console.error);
 }
 
 
@@ -838,10 +844,10 @@ function doQueueNext(msg) {
         return setTopic(msg, newTopic).then(_ => newDeployer);
     }).then(newDeployer => {
         if (!newDeployer) {
-            replyAsSun(msg, "Okay.  Anybody else want to deploy?");
+            replyAsSun(msg, "Okay.  Anybody else want to deploy?", true);
         } else {
             const mentions = stringifyDeployerUsernames(newDeployer);
-            replyAsSun(msg, `Okay, ${mentions} it is your turn!`);
+            replyAsSun(msg, `Okay, ${mentions} it is your turn!`, true);
         }
     });
 }
@@ -928,9 +934,9 @@ function handleDeploy(msg) {
     d.setHours(d.getHours() - 7);
     if (d.getDay() === 5) {
         replyAsSun(msg,
-            ":frog: It's Friday! Please don't make changes that potentially " + 
-            "affect many parts of the site. If your change affects only " + 
-            "a small surface area that you can verify manually, go " + 
+            ":frog: It's Friday! Please don't make changes that potentially " +
+            "affect many parts of the site. If your change affects only " +
+            "a small surface area that you can verify manually, go " +
             "forth and deploy with `sun: deploy-not-risky [branch-name]`");
         return Promise.resolve();
     } else {
@@ -970,7 +976,8 @@ function handleSafeDeploy(msg) {
                         const mentions = stringifyDeployerUsernames(topic.queue[0]);
                         replyAsSun(msg, `${mentions}, now would be ` +
                                    "a good time to run `sun: test master + " +
-                                   deployBranch + " + <your branch>`");
+                                   deployBranch + " + <your branch>`",
+                                   true);
                     }
                 });
             }
