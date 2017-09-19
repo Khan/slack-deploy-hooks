@@ -177,7 +177,7 @@ function replyAsSun(msg, reply) {
  */
 function logHttpError(err, body) {
     console.error("HTTP Error");
-    console.error(`    Error: ${err}`);
+    console.error(`    Error: ${JSON.stringify(err)}`);
     if (err.stack) {
         console.error(`    Stack: ${err.stack}`);
     }
@@ -204,7 +204,7 @@ function logHttpError(err, body) {
  */
 function onError(msg, err) {
     console.error("ERROR");
-    console.error(`    Error: ${err}`);
+    console.error(`    Error: ${JSON.stringify(err)}`);
     if (err.stack) {
         console.error(`    Stack: ${err.stack}`);
     }
@@ -642,6 +642,25 @@ function stringifyDeployer(deployer) {
 }
 
 /**
+ * Turn a deploy object into a string useful for notifying all deployers.
+ * For instance, a return value might be "@csilves @amy".
+ *
+ * @param {?string|{usernames: Array.<string>, note: (undefined|string)}}
+ *     deployer A deployer such as that returned by parseDeployer.
+ *
+ * @return string
+ */
+function stringifyDeployerUsernames(deployer) {
+    // deployer will be either an object with a username key, or a
+    // string which we couldn't parse.
+    if (deployer.usernames) {
+        return deployer.usernames.map(username => `@${username}`).join(" ");
+    } else {
+        return deployer;
+    }
+}
+
+/**
  * Get a promise for the parsed topic of the deployment room.
  *
  * The promise will resolve to an object with keys "deployer" (a deployer (as
@@ -821,16 +840,7 @@ function doQueueNext(msg) {
         if (!newDeployer) {
             replyAsSun(msg, "Okay.  Anybody else want to deploy?");
         } else {
-            let mentions;
-            // newDeployer will be either an object with a username key, or a
-            // string which we couldn't parse.
-            if (newDeployer.usernames) {
-                mentions = newDeployer.usernames
-                    .map(username => `@${username}`)
-                    .join(" ");
-            } else {
-                mentions = newDeployer;
-            }
+            const mentions = stringifyDeployerUsernames(newDeployer);
             replyAsSun(msg, `Okay, ${mentions} it is your turn!`);
         }
     });
@@ -930,16 +940,17 @@ function handleDeploy(msg) {
 
 function handleSafeDeploy(msg) {
     return validateUserAuth(msg).then(() => {
+        const deployBranch = msg.match[1];
+        const ccUsers = msg.match[2];
+
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
             if (deployWebappId) {
                 replyAsSun(msg, "I think there's a deploy already going on. " +
                     "If that's not the case, take it up with Jenkins.");
-                return;
+                return false;
             }
 
-            const deployBranch = msg.match[1];
             CC_USERS = [];
-            const ccUsers = msg.match[2];
             if (!!ccUsers) {
               addUsersToCCList(ccUsers);
             }
@@ -951,6 +962,18 @@ function handleSafeDeploy(msg) {
 
             runJobOnJenkins(msg, "deploy/deploy-webapp", postData,
                 "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+            return true;
+        }).then(startedDeploy => {
+            if (startedDeploy) {
+                getTopic(msg).then(topic => {
+                    if (topic.queue.length > 0) {
+                        const mentions = stringifyDeployerUsernames(topic.queue[0]);
+                        replyAsSun(msg, `${mentions}, now would be ` +
+                                   "a good time to run `sun: test master + " +
+                                   deployBranch + " + <your branch>`");
+                    }
+                });
+            }
         });
     });
 }
