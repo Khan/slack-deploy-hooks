@@ -5,14 +5,13 @@
   "main": "app.js",
   "repository": "https://github.com/Khan/slack-deploy-hooks",
   "scripts": {
-    "start": "babel-node app.js",
+    "start": "node app.js",
     "monitor": "nodemon --exec npm run start -- app.js",
     "predeploy": "build-scripts/predeploy",
     "lint": "eslint --fix *.js",
     "deploy": "npm run predeploy && gcloud app deploy app.yaml --project khan-sun --promote --stop-previous-version"
   },
   "dependencies": {
-    "babel": "^5.8",
     "body-parser": "^1.13",
     "express": "^4.13",
     "googleapis": "^18.0.0",

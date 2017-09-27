@@ -21,11 +21,11 @@
  * TODO(csilvers): split this up into several files.
  */
 
-import Q from "q";
-import bodyParser from "body-parser";
-import express from "express";
-import request from "request";
-import googleapis from "googleapis";
+const Q = require("q");  // TODO(benkraft): replace with native promises
+const bodyParser = require("body-parser");
+const express = require("express");
+const request = require("request");
+const googleapis = require("googleapis");
 
 const googleKey = require("./email_role_checker_secret.json");
 
