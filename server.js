@@ -18,6 +18,8 @@
  * Author:
  *   bmp and csilvers
  *
+ * NOTE(benkraft): App Engine Standard requires that this file (or more
+ * generally the app entrypoint) be server.js, for now.
  * TODO(csilvers): split this up into several files.
  */
 

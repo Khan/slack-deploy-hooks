@@ -2,11 +2,11 @@
   "name": "khan-sun",
   "version": "0.1.0",
   "description": "Khan's outgoing webhooks for deployment",
-  "main": "app.js",
+  "main": "server.js",
   "repository": "https://github.com/Khan/slack-deploy-hooks",
   "scripts": {
-    "start": "node app.js",
-    "monitor": "nodemon --exec npm run start -- app.js",
+    "start": "node server.js",
+    "monitor": "nodemon --exec npm run start -- server.js",
     "predeploy": "build-scripts/predeploy",
     "lint": "eslint --fix *.js",
     "deploy": "npm run predeploy && gcloud app deploy app.yaml --project khan-sun --promote --stop-previous-version"
