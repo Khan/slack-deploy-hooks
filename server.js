@@ -1075,11 +1075,11 @@ function handleFinish(msg) {
                        "Telling Jenkins to finish this deploy!");
             CC_USERS = [];
             const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
-            return runOnJenkins(null, path, {}, null, false);
             // wait a little while before notifying the next person.
             // hopefully the happy dance has appeared by then, if not
             // humans will have to figure it out themselves.
             setTimeout(() => doQueueNext(msg), 20000);
+            return runOnJenkins(null, path, {}, null, false);
         });
     });
 }
