@@ -95,7 +95,9 @@ const FIELD_SEP = ',';
 // CSRF token used to submit Jenkins POST requests - in Jenkins-land, this is
 // referred to as a "crumb". This value is retrieved when the first Jenkins
 // POST is made, and stored throughout the lifetime of this instance since
-// Jenkins CSRF tokens apparently do not expire.
+// Jenkins CSRF tokens apparently do not expire.  (But if we get a CSRF error,
+// we try refetching it, just in case; they may expire e.g. when Jenkins gets
+// restarted.)
 let JENKINS_CSRF_TOKEN = null;
 
 // User list for the bot to CC on deploy messages. This gets reset by
@@ -118,10 +120,14 @@ const USER_EMAILS = new Map();
 
 /**
  * An error that will be reported back to the user.
+ *
+ * We note if it's a CSRF error, since callers may wish to handle that rather
+ * than raising.
  */
 class SunError {
-    constructor(msg) {
+    constructor(msg, isCSRFError) {
         this.message = msg;
+        this.isCSRFError = isCSRFError;
         this.name = "SunError";
     }
 }
@@ -435,12 +441,18 @@ function getJenkinsCSRFToken() {
     });
 }
 
-// path should be the URL path; postData should be an object which we will
-// encode.  If allowRedirect is falsy, we will consider a 3xx response an
-// error.  If allowRedirect is truthy, we will consider a 3xx response a
-// success.  (This is because a 302, for instance, might mean that we need to
-// follow a redirect to do the thing we want, or it might mean that we were
-// successful and are now getting redirected to a new page.)
+/**
+ * Low-level method to send a request to Jenkins.
+ *
+ * path should be the URL path; postData should be an object which we will
+ * encode.  If allowRedirect is falsy, we will consider a 3xx response an
+ * error.  If allowRedirect is truthy, we will consider a 3xx response a
+ * success.  (This is because a 302, for instance, might mean that we need to
+ * follow a redirect to do the thing we want, or it might mean that we were
+ * successful and are now getting redirected to a new page.)
+ *
+ * Caller should already have set up JENKINS_CSRF_TOKEN, if necessary.
+ */
 function getOrPostToJenkins(path, postData, allowRedirect) {
     const options = {
         url: "https://jenkins.khanacademy.org" + path,
@@ -461,20 +473,35 @@ function getOrPostToJenkins(path, postData, allowRedirect) {
         return Q('');       // a promise resolving to the empty string
     }
 
-    return requestQ(options).spread((res, body) => {
-        if ((!allowRedirect && res.statusCode > 299) || res.statusCode > 399) {
+    return requestQ(options).catch(_err => {
+        // Replace the error (which has already been logged) with a more
+        // user-friendly one.  We put the catch() first because the spread()
+        // throws its own readable errors, and we don't want to mess with that.
+        throw new SunError("Jenkins won't pick up the phone!  You'll have " +
+                           "to talk to it yourself.");
+    }).spread((res, body) => {
+        if (res.statusCode === 403 && body.indexOf("No valid crumb") !== -1) {
+            // Most callers should catch this, but we include an error message
+            // just in case.
+            throw new SunError(
+                "Jenkins didn't like my crumb.  (That's the way the cookie " +
+                "crumbles.)  You'll have to talk to it yourself.", true);
+        } else if ((!allowRedirect && res.statusCode > 299)
+                   || res.statusCode > 399) {
             logHttpError(res, body);
-            throw res;
+            throw new SunError(
+                "Jenkins didn't like what I said!  You'll have " +
+                "to talk to it yourself.");
         }
         return body;
-    }).catch(_err => {
-        // Replace the error (which has already been logged) with a more
-        // user-friendly one.
-        throw new SunError("Jenkins won't listen to me!  You'll have to " +
-                           "talk to it yourself.");
     });
 }
 
+/**
+ * Make a get/post to jenkins. 
+ *
+ * We tell readers what we're doing, and fetch a CSRF token if necessary.
+ */
 function runOnJenkins(msg, path, postData, message, allowRedirect) {
     // Tell readers what we're doing.
     if (message) {
@@ -484,11 +511,24 @@ function runOnJenkins(msg, path, postData, message, allowRedirect) {
     // If we haven't yet grabbed a CSRF token (needed for POST requests), then
     // grab one before making our request.
     if (!JENKINS_CSRF_TOKEN) {
-        getJenkinsCSRFToken().then(body => {
-            getOrPostToJenkins(path, postData, allowRedirect);
+        return getJenkinsCSRFToken().then(body => {
+            return getOrPostToJenkins(path, postData, allowRedirect);
         });
     } else {
-        getOrPostToJenkins(path, postData, allowRedirect);
+        return getOrPostToJenkins(path, postData, allowRedirect).catch(err => {
+            if (err.isCSRFError) {
+                // For some reason our CSRF token was no longer valid.  Fetch a
+                // new one and try again.
+                // TODO(benkraft): Avoid getting to this point by figuring out
+                // when we need to fetch a new crumb.
+                return getJenkinsCSRFToken().then(body => {
+                    return getOrPostToJenkins(path, postData, allowRedirect);
+                });
+            } else {
+                // Any other error, we don't know what to do so we rethrow.
+                throw err;
+            }
+        });
     }
 }
 
@@ -545,13 +585,13 @@ function runJobOnJenkins(msg, jobName, postData, message) {
         path = `${jobPath(jobName)}/buildWithParameters`;
     }
 
-    runOnJenkins(msg, path, postData, message);
+    return runOnJenkins(msg, path, postData, message);
 }
 
 
 function cancelJobOnJenkins(msg, jobName, jobId, message) {
     const path = `${jobPath(jobName)}/${jobId}/stop`;
-    runOnJenkins(msg, path, {}, message, true);
+    return runOnJenkins(msg, path, {}, message, true);
 }
 
 
@@ -757,23 +797,23 @@ function validateUserAuth(msg) {
 }
 
 function handleHelp(msg) {
-    replyAsSun(msg, help_text);
+    return replyAsSun(msg, help_text);
 }
 
 function handleEmojiHelp(msg) {
-    replyAsSun(msg, emoji_help_text);
+    return replyAsSun(msg, emoji_help_text);
 }
 
 function handlePing(msg) {
-    replyAsSun(msg, "I AM THE MONKEY KING!");
+    return replyAsSun(msg, "I AM THE MONKEY KING!");
 }
 
 function handleFingersCrossed(msg) {
-    replyAsSun(msg, "Okay, I've crossed my fingers.  :fingerscrossed:");
+    return replyAsSun(msg, "Okay, I've crossed my fingers.  :fingerscrossed:");
 }
 
 function handleState(msg) {
-    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+    return jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
         let text;
         if (deployWebappId) {
             text = `deploy/deploy-webapp #${deployWebappId} is currently running.`;
@@ -785,7 +825,7 @@ function handleState(msg) {
 }
 
 function handlePodBayDoors(msg) {
-    wrongPipelineStep(msg, "open the pod bay doors");
+    return wrongPipelineStep(msg, "open the pod bay doors");
 }
 
 function handleQueueMe(msg) {
@@ -840,7 +880,7 @@ function doQueueNext(msg) {
 function handleQueueNext(msg) {
     // TODO(csilvers): complain if they do 'next' after the happy dance,
     // since we do that automatically now.
-    doQueueNext(msg);
+    return doQueueNext(msg);
 }
 
 
@@ -860,7 +900,7 @@ function handleRemoveMe(msg) {
 }
 
 function handleCCUsers(msg) {
-    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+    return jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
         if (deployWebappId) {
             let ccUsers = msg.match[1];
             addUsersToCCList(ccUsers);
@@ -879,14 +919,14 @@ function handleDeleteZnd(msg) {
     const postData = {
         "ZND_NAME": znd_name,
     };
-    runJobOnJenkins(msg, "deploy/delete-znd", postData, responseText);
+    return runJobOnJenkins(msg, "deploy/delete-znd", postData, responseText);
 }
 
 
 function handleNotifyZndOwners(msg) {
     const responseText = ("Okay, I'll check in with ZND owners about " +
                           "cleaning up their ZNDs");
-    runJobOnJenkins(msg, "deploy/notify-znd-owners", {}, responseText);
+    return runJobOnJenkins(msg, "deploy/notify-znd-owners", {}, responseText);
 }
 
 
@@ -894,13 +934,12 @@ function handleHistory(msg) {
     const responseText = (
         "Asking jenkins to print the changelog for the last 5 deploys. " +
         "(This may take a minute.)");
-    runJobOnJenkins(msg, "deploy/deploy-history",
-                    {"SLACK_CHANNEL": msg.channel}, responseText);
-}
+    return runJobOnJenkins(msg, "deploy/deploy-history",
+                           {"SLACK_CHANNEL": msg.channel}, responseText); }
 
 
 function handleMakeCheck(msg) {
-    jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
+    return jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
         const deployBranch = msg.match[1];
         const postData = {
             "GIT_REVISION": deployBranch,
@@ -924,12 +963,11 @@ function handleDeploy(msg) {
     // If (d.getHours() - 7) is negative, d moves back a day
     d.setHours(d.getHours() - 7);
     if (d.getDay() === 5) {
-        replyAsSun(msg,
+        return replyAsSun(msg,
             ":frog: It's Friday! Please don't make changes that potentially " + 
             "affect many parts of the site. If your change affects only " + 
             "a small surface area that you can verify manually, go " + 
             "forth and deploy with `sun: deploy-not-risky [branch-name]`");
-        return Promise.resolve();
     } else {
         return handleSafeDeploy(msg);
     }
@@ -982,15 +1020,15 @@ function handleSetDefault(msg) {
 function handleAbort(msg) {
     jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
         if (deployWebappId) {
+            CC_USERS = [];
             // There's a job running, so we should probably cancel it.
-            cancelJobOnJenkins(msg, "deploy/deploy-webapp",
+            return cancelJobOnJenkins(msg, "deploy/deploy-webapp",
                 deployWebappId,
                 "Telling Jenkins to cancel deploy/deploy-webapp " +
                 "#" + deployWebappId + ".");
-            CC_USERS = [];
         } else {
             // If no deploy is in progress, we had better not abort.
-            replyAsSun(msg,
+            return replyAsSun(msg,
                 "I don't think there's a deploy going.  If you need " +
                 "to roll back the production servers because you noticed " +
                 "some problems after a deploy finished, :speech_balloon: " +
@@ -1002,7 +1040,7 @@ function handleAbort(msg) {
 }
 
 function handleFinish(msg) {
-    jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+    return jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
         validatePipelineStep("finish-with-success", deployWebappId).then(isValid => {
             if (!isValid) {
                 return wrongPipelineStep(msg, "finish-with-success");
@@ -1012,7 +1050,7 @@ function handleFinish(msg) {
                        "Telling Jenkins to finish this deploy!");
             CC_USERS = [];
             const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
-            runOnJenkins(null, path, {}, null, false);
+            return runOnJenkins(null, path, {}, null, false);
             // wait a little while before notifying the next person.
             // hopefully the happy dance has appeared by then, if not
             // humans will have to figure it out themselves.
@@ -1023,7 +1061,7 @@ function handleFinish(msg) {
 
 function handleEmergencyRollback(msg) {
     const jobname = "---EMERGENCY-ROLLBACK---";
-    runJobOnJenkins(msg, jobname, {},
+    return runJobOnJenkins(msg, jobname, {},
         "Telling Jenkins to roll back the live site to a safe " +
         "version");
 }
