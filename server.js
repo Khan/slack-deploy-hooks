@@ -36,7 +36,7 @@ const help_text = `*Commands*
   - \`sun: queue [username]\` - add someone to the deploy queue (user is "me" or of the form \`user1 + user2 (optional note)\`)
   - \`sun: up next\` - move the person at the front of the queue to deploying, and ping them
   - \`sun: remove [username]\` - remove someone from the deploy queue (user is "me" or a username)
-  - \`sun: test <branch name>\` - run tests on a particular branch, independent of a deploy
+  - \`sun: test <branch name> [+ <branch name> ...]\` - run tests on a particular branch, independent of a deploy
   - \`sun: delete znd <znd name>\` - ask Jenkins to delete the given znd
   - \`sun: prompt znd cleanup\` - check in with znd owners about cleaning up their znd
   - \`sun: history\` - print the changelogs for the 5 most recent successful deploys
@@ -142,18 +142,24 @@ class SunError {
  * @param msg the *incoming* hook data from Slack, as handled in the main
  *   route method
  * @param reply The text you want embedded in the message
+ * @param omitCurrentUser If set do not ping the current user (and cc's)
+ *   as part ofaa the message
  */
-function sunMessage(msg, reply) {
-    let message_text = `<@${msg.user}> `;
-    if (CC_USERS.length != 0) {
-      message_text += `(cc ${CC_USERS.join(', ')}) `;
+function sunMessage(msg, reply, omitCurrentUser) {
+    let message_text = '';
+    if (!omitCurrentUser) {
+        message_text += `@${msg.user} `;
+        if (CC_USERS.length != 0) {
+            message_text += `(cc ${CC_USERS.join(', ')}) `;
+        }
     }
     message_text += reply;
     return {
         username: "Sun Wukong",
         icon_emoji: ":monkey_face:",
         channel: msg.channel,
-        text: message_text
+        text: message_text,
+        link_names: true
     };
 }
 
@@ -163,13 +169,14 @@ function sunMessage(msg, reply) {
  * @param msg the *incoming* message hook data from Slack
  * @param reply the text you want to send as the reply
  */
-function replyAsSun(msg, reply) {
+function replyAsSun(msg, reply, omitCurrentUser) {
     if (DEBUG) {
         console.log(`Sending: "${reply}"`);
     }
     // TODO(benkraft): more usefully handle any errors we get from this.
     // Except it's not clear what to do if posting to slack fails.
-    slackAPI("chat.postMessage", sunMessage(msg, reply)).catch(console.error);
+    slackAPI("chat.postMessage", sunMessage(msg, reply, omitCurrentUser))
+        .catch(console.error);
 }
 
 
@@ -184,7 +191,7 @@ function replyAsSun(msg, reply) {
  */
 function logHttpError(err, body) {
     console.error("HTTP Error");
-    console.error(`    Error: ${err}`);
+    console.error(`    Error: ${JSON.stringify(err)}`);
     if (err.stack) {
         console.error(`    Stack: ${err.stack}`);
     }
@@ -211,7 +218,7 @@ function logHttpError(err, body) {
  */
 function onError(msg, err) {
     console.error("ERROR");
-    console.error(`    Error: ${err}`);
+    console.error(`    Error: ${JSON.stringify(err)}`);
     if (err.stack) {
         console.error(`    Stack: ${err.stack}`);
     }
@@ -297,8 +304,8 @@ function slackAPI(call, params) {
  */
 function addUsersToCCList(users_str) {
   users_str.split(/\s*\+\s*/)
-           .map(username => username.startsWith('<') ? username : `<@${username}>`)
-           .map(username => CC_USERS.push(username));
+    .map(username => username.startsWith('@') ? username : `@${username}`)
+    .map(username => CC_USERS.push(username));
 }
 
 //--------------------------------------------------------------------------
@@ -683,6 +690,25 @@ function stringifyDeployer(deployer) {
 }
 
 /**
+ * Turn a deploy object into a string useful for notifying all deployers.
+ * For instance, a return value might be "@csilves @amy".
+ *
+ * @param {?string|{usernames: Array.<string>, note: (undefined|string)}}
+ *     deployer A deployer such as that returned by parseDeployer.
+ *
+ * @return string
+ */
+function stringifyDeployerUsernames(deployer) {
+    // deployer will be either an object with a username key, or a
+    // string which we couldn't parse.
+    if (deployer.usernames) {
+        return deployer.usernames.map(username => `@${username}`).join(" ");
+    } else {
+        return deployer;
+    }
+}
+
+/**
  * Get a promise for the parsed topic of the deployment room.
  *
  * The promise will resolve to an object with keys "deployer" (a deployer (as
@@ -776,7 +802,7 @@ function validatePipelineStep(step, deployWebappId) {
 }
 
 function wrongPipelineStep(msg, badStep) {
-    replyAsSun(msg, `:hal9000: I'm sorry, <@${msg.user}>.  I'm ` +
+    replyAsSun(msg, `:hal9000: I'm sorry, @${msg.user}.  I'm ` +
         "afraid I can't let you do that.  (It's not time to " +
         `${badStep}.  If you disagree, bring it up with Jenkins.)`);
 }
@@ -860,19 +886,10 @@ function doQueueNext(msg) {
         return setTopic(msg, newTopic).then(_ => newDeployer);
     }).then(newDeployer => {
         if (!newDeployer) {
-            replyAsSun(msg, "Okay.  Anybody else want to deploy?");
+            replyAsSun(msg, "Okay.  Anybody else want to deploy?", true);
         } else {
-            let mentions;
-            // newDeployer will be either an object with a username key, or a
-            // string which we couldn't parse.
-            if (newDeployer.usernames) {
-                mentions = newDeployer.usernames
-                    .map(username => `<@${username}>`)
-                    .join(" ");
-            } else {
-                mentions = newDeployer;
-            }
-            replyAsSun(msg, `Okay, ${mentions} it is your turn!`);
+            const mentions = stringifyDeployerUsernames(newDeployer);
+            replyAsSun(msg, `Okay, ${mentions} it is your turn!`, true);
         }
     });
 }
@@ -939,21 +956,15 @@ function handleHistory(msg) {
 
 
 function handleMakeCheck(msg) {
-    return jenkinsJobStatus("deploy/webapp-test").then(runningJob => {
-        const deployBranch = msg.match[1];
-        const postData = {
-            "GIT_REVISION": deployBranch,
-            "SLACK_CHANNEL": msg.channel,
-            "REPORT_RESULT": true,
-        };
-        let responseText = ("Telling Jenkins to run tests on branch `" +
-                            deployBranch + "`.");
-        if (runningJob) {
-            responseText += "  They'll run after the current webapp-test ";
-            responseText += "completes.";
-        }
-        runJobOnJenkins(msg, "deploy/webapp-test", postData, responseText);
-    });
+    const deployBranch = msg.match[1];
+    const postData = {
+        "GIT_REVISION": deployBranch,
+        "SLACK_CHANNEL": msg.channel,
+        "REPORT_RESULT": true,
+    };
+    let responseText = ("Telling Jenkins to run tests on branch `" +
+                        deployBranch + "`.");
+    return runJobOnJenkins(msg, "deploy/webapp-test", postData, responseText);
 }
 
 function handleDeploy(msg) {
@@ -964,9 +975,9 @@ function handleDeploy(msg) {
     d.setHours(d.getHours() - 7);
     if (d.getDay() === 5) {
         return replyAsSun(msg,
-            ":frog: It's Friday! Please don't make changes that potentially " + 
-            "affect many parts of the site. If your change affects only " + 
-            "a small surface area that you can verify manually, go " + 
+            ":frog: It's Friday! Please don't make changes that potentially " +
+            "affect many parts of the site. If your change affects only " +
+            "a small surface area that you can verify manually, go " +
             "forth and deploy with `sun: deploy-not-risky [branch-name]`");
     } else {
         return handleSafeDeploy(msg);
@@ -975,16 +986,17 @@ function handleDeploy(msg) {
 
 function handleSafeDeploy(msg) {
     return validateUserAuth(msg).then(() => {
+        const deployBranch = msg.match[1];
+        const ccUsers = msg.match[2];
+
         jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
             if (deployWebappId) {
                 replyAsSun(msg, "I think there's a deploy already going on. " +
                     "If that's not the case, take it up with Jenkins.");
-                return;
+                return false;
             }
 
-            const deployBranch = msg.match[1];
             CC_USERS = [];
-            const ccUsers = msg.match[2];
             if (!!ccUsers) {
               addUsersToCCList(ccUsers);
             }
@@ -996,6 +1008,19 @@ function handleSafeDeploy(msg) {
 
             runJobOnJenkins(msg, "deploy/deploy-webapp", postData,
                 "Telling Jenkins to deploy branch `" + deployBranch + "`.");
+            return true;
+        }).then(startedDeploy => {
+            if (startedDeploy) {
+                getTopic(msg).then(topic => {
+                    if (topic.queue.length > 0) {
+                        const mentions = stringifyDeployerUsernames(topic.queue[0]);
+                        replyAsSun(msg, `${mentions}, now would be ` +
+                                   "a good time to run `sun: test master + " +
+                                   deployBranch + " + <your branch>`",
+                                   true);
+                    }
+                });
+            }
         });
     });
 }
@@ -1060,7 +1085,7 @@ function handleFinish(msg) {
 }
 
 function handleEmergencyRollback(msg) {
-    const jobname = "---EMERGENCY-ROLLBACK---";
+    const jobname = "deploy/---EMERGENCY-ROLLBACK---";
     return runJobOnJenkins(msg, jobname, {},
         "Telling Jenkins to roll back the live site to a safe " +
         "version");
@@ -1137,6 +1162,7 @@ const emojiHandlerMap = new Map([
      handleFinish],
     [/^:(?:heavy_check_mark|white_check_mark):/i, handleFinish],
     [/^:scream:/i, handleEmergencyRollback],
+    [new RegExp("^:phone:\\s+([^" + FIELD_SEP + "]*)$", 'i'), handleCCUsers],
     [/^.*$/i, handleEmojiHelp],
 ]);
 

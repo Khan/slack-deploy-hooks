@@ -1,8 +1,8 @@
 # Slack Deploy Hooks
 > The Khan deployment service for Slack
 
-Slack Deploy Hooks replace the old Sun Wukong Hubot plugin with a much simpler
-webhook-based solution that otherwise works identically.
+Slack Deploy Hooks replace the old Sun Wukong Hubot plugin and adds a
+lot of functionality.
 
 ## Settings
 
@@ -37,19 +37,18 @@ given on your first deploy.
 The Slack deploy hooks are a vanilla Node application, so a simple
 
     $ npm install
-    $ env SUN_DEBUG=1 npm run monitor
+    $ env SUN_DEBUG=1 SLACK_BOT_TOKEN=`cat .slack_bot_token` npm run monitor
 
 Will give you a fully set-up local copy of khan-sun. You can then easily test
 it simply by using a tool like httpie and submitting Slack outgoing webhooks
 and observing the result. For example, to test the sun: ping command:
 
-    curl -d 'team_id=T0001&team_domain=example&channel_id=C2147483705&channel_name=bot-testing&user_name=bmp&text=sun: ping&trigger_word=sun:' localhost:8080
+    curl -d 'team_id=T0001&team_domain=example&channel_id=C090KRE5P&channel_name=bot-testing&user_id=U09M5G8G6&user_name=csilvers&text=sun: ping&trigger_word=sun:' localhost:8080
 
 Should give you the response like `{}`, indicating success, from the HTTP
 command, and print out the response text in the terminal running Sun. (If you
 do not see any output, you probably forgot to set the `SUN_DEBUG` flag specified
-above.) Though actually it will probably say "Sorry, I only respond to
-messages in <#C090KRE5P>!"
+above.)
 
 ### Build and Deploy
 
