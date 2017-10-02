@@ -886,10 +886,11 @@ function doQueueNext(msg) {
         return setTopic(msg, newTopic).then(_ => newDeployer);
     }).then(newDeployer => {
         if (!newDeployer) {
-            replyAsSun(msg, "Okay.  Anybody else want to deploy?", true);
+            return replyAsSun(msg, "Okay.  Anybody else want to deploy?",
+                              true);
         } else {
             const mentions = stringifyDeployerUsernames(newDeployer);
-            replyAsSun(msg, `Okay, ${mentions} it is your turn!`, true);
+            return replyAsSun(msg, `Okay, ${mentions} it is your turn!`, true);
         }
     });
 }
@@ -1011,10 +1012,10 @@ function handleSafeDeploy(msg) {
             return true;
         }).then(startedDeploy => {
             if (startedDeploy) {
-                getTopic(msg).then(topic => {
+                return getTopic(msg).then(topic => {
                     if (topic.queue.length > 0) {
                         const mentions = stringifyDeployerUsernames(topic.queue[0]);
-                        replyAsSun(msg, `${mentions}, now would be ` +
+                        return replyAsSun(msg, `${mentions}, now would be ` +
                                    "a good time to run `sun: test master + " +
                                    deployBranch + " + <your branch>`",
                                    true);
@@ -1036,7 +1037,7 @@ function handleSetDefault(msg) {
                 replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
                            "Telling Jenkins to set default");
                 const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
-                runOnJenkins(null, path, {}, null, false);
+                return runOnJenkins(null, path, {}, null, false);
             });
         });
     });
