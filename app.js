@@ -916,6 +916,7 @@ function handleHistory(msg) {
 
 function handleMakeCheck(msg) {
     const deployBranch = msg.match[1];
+    const caller = msg.user;
     const postData = {
         "GIT_REVISION": deployBranch,
         "SLACK_CHANNEL": msg.channel,
