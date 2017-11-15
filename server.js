@@ -958,10 +958,12 @@ function handleHistory(msg) {
 
 function handleMakeCheck(msg) {
     const deployBranch = msg.match[1];
+    const caller = msg.user;
     const postData = {
         "GIT_REVISION": deployBranch,
         "SLACK_CHANNEL": msg.channel,
         "REPORT_RESULT": true,
+        "DEPLOYER_USERNAME": "@" + caller,
     };
     let responseText = ("Telling Jenkins to run tests on branch `" +
                         deployBranch + "`.");
@@ -1004,7 +1006,7 @@ function handleSafeDeploy(msg) {
             const caller = msg.user;
             const postData = {
                 "GIT_REVISION": deployBranch,
-                "DEPLOYER_USERNAME": "@" + caller
+                "DEPLOYER_USERNAME": "@" + caller,
             };
 
             runJobOnJenkins(msg, "deploy/deploy-webapp", postData,
