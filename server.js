@@ -793,7 +793,8 @@ function validatePipelineStep(step, deployWebappId) {
         return Q(false);     // a deploy isn't even running now!
     }
 
-    const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/`;
+    const path = (`${jobPath("deploy/deploy-webapp-core")}/` +
+                  `${deployWebappId}/input/`);
     return getOrPostToJenkins(path, null, false).then(body => {
         return body.indexOf(`name="${expectedName}"`) !== -1;
     }).catch(_err => {  // 404: no inputs expected right now at all
@@ -1030,7 +1031,7 @@ function handleSafeDeploy(msg) {
 
 function handleSetDefault(msg) {
     return validateUserAuth(msg).then(() => {
-        jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+        jenkinsJobStatus("deploy/deploy-webapp-core").then(deployWebappId => {
             validatePipelineStep("set-default-start", deployWebappId).then(isValid => {
                 if (!isValid) {
                     return wrongPipelineStep(msg, "set-default");
@@ -1038,7 +1039,7 @@ function handleSetDefault(msg) {
                 // Hit the "continue" button.
                 replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
                            "Telling Jenkins to set default");
-                const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
+                const path = `${jobPath("deploy/deploy-webapp-core")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
                 return runOnJenkins(null, path, {}, null, false);
             });
         });
@@ -1068,7 +1069,7 @@ function handleAbort(msg) {
 }
 
 function handleFinish(msg) {
-    return jenkinsJobStatus("deploy/deploy-webapp").then(deployWebappId => {
+    return jenkinsJobStatus("deploy/deploy-webapp-core").then(deployWebappId => {
         validatePipelineStep("finish-with-success", deployWebappId).then(isValid => {
             if (!isValid) {
                 return wrongPipelineStep(msg, "finish-with-success");
@@ -1077,7 +1078,7 @@ function handleFinish(msg) {
             replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
                        "Telling Jenkins to finish this deploy!");
             CC_USERS = [];
-            const path = `${jobPath("deploy/deploy-webapp")}/${deployWebappId}/input/Finish/proceedEmpty`;
+            const path = `${jobPath("deploy/deploy-webapp-core")}/${deployWebappId}/input/Finish/proceedEmpty`;
             // wait a little while before notifying the next person.
             // hopefully the happy dance has appeared by then, if not
             // humans will have to figure it out themselves.
