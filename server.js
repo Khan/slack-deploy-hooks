@@ -846,7 +846,7 @@ function handleState(msg) {
         let text;
         if (deployWebappId) {
             text = (`deploy/deploy-webapp #${deployWebappId} ` +
-                    `(deploy/deploy-webapp-core #${deployWebappCoreId})` +
+                    `(deploy/deploy-webapp-core #${deployWebappCoreId}) ` +
                     `is currently running.`);
         } else {
             text = "No deploy is currently running.";
