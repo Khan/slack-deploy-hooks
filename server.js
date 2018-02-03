@@ -842,7 +842,7 @@ function handleFingersCrossed(msg) {
 function handleState(msg) {
     return Q.spread([jenkinsJobStatus("deploy/deploy-webapp"),
                      jenkinsJobStatus("deploy/deploy-webapp-core"),
-    ]).then((deployWebappId, deployWebappCoreId) => {
+                    ], (deployWebappId, deployWebappCoreId) => {
         let text;
         if (deployWebappId) {
             text = (`deploy/deploy-webapp #${deployWebappId} ` +
