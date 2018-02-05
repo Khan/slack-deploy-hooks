@@ -553,6 +553,9 @@ function jobPath(jobName) {
 
 /**
  * Returns a promise for the current job ID if one is running, or false if not.
+ *
+ * Note that this isn't very useful for jobs that can run concurrently!  Use it
+ * for deploy-webapp, instead.
  */
 function jenkinsJobStatus(jobName) {
     return request200({
@@ -574,6 +577,39 @@ function jenkinsJobStatus(jobName) {
         } else {
             return null;
         }
+    }).catch(_err => {
+        // Replace the error (which has already been logged) with a more
+        // user-friendly one.
+        throw new SunError("Jenkins won't tell me what's running!  " +
+                           "You'll have to talk to it yourself.");
+    });
+}
+
+/**
+ * Returns a promise for the deploy-webapp-core job spawned by deploy-webapp.
+ *
+ * See jenkins-jobs:jobs/deploy-webapp for how we got in this mess.  Most
+ * times, we can ignore deploy-webapp-core, and just start/abort deploy-webapp.
+ * But for clicking the "proceed" button, we need to look at the actual
+ * underlying deploy-webapp-core job.  This is unfortunately not made easy by
+ * the Jenkins API: since there could be multiple deploy-webapp-core jobs
+ * running, we need to look for the one spawned by deploy-webapp, which we do
+ * by checking its console log for when it mentions the spawned build number.
+ */
+function deployWebappCoreStatus(deployWebappId) {
+    // Pass through any nulls (but in a promise for consistency)
+    return deployWebappId === null ? Q(null) : request200({
+        url: ("https://jenkins.khanacademy.org" +
+              `${jobPath('deploy/deploy-webapp')}` +
+              `/${deployWebappId}/logText/progressiveText`),
+        auth: {
+            username: "jenkins@khanacademy.org",
+            password: process.env.JENKINS_API_TOKEN,
+        },
+    }).then(body => {
+        // Returns [match, groups...], we want group 1 (as a number) or null
+        const buildId = body.match(/deploy-webapp-core #(\d*)/);
+        return buildId && +buildId[1];
     }).catch(_err => {
         // Replace the error (which has already been logged) with a more
         // user-friendly one.
@@ -776,7 +812,7 @@ function setTopic(msg, topic) {
 /**
  * Return a promise that resolves to whether the pipeline step is valid.
  */
-function validatePipelineStep(step, deployWebappId) {
+function validatePipelineStep(step, deployWebappCoreId) {
     let expectedName = null;
     if (step === "set-default-start") {
         // The "/input" form is where you click to proceed or abort.
@@ -794,7 +830,7 @@ function validatePipelineStep(step, deployWebappId) {
     }
 
     const path = (`${jobPath("deploy/deploy-webapp-core")}/` +
-                  `${deployWebappId}/input/`);
+                  `${deployWebappCoreId}/input/`);
     return getOrPostToJenkins(path, null, false).then(body => {
         return body.indexOf(`name="${expectedName}"`) !== -1;
     }).catch(_err => {  // 404: no inputs expected right now at all
@@ -840,19 +876,19 @@ function handleFingersCrossed(msg) {
 }
 
 function handleState(msg) {
-    return Q.spread([jenkinsJobStatus("deploy/deploy-webapp"),
-                     jenkinsJobStatus("deploy/deploy-webapp-core"),
-                    ], (deployWebappId, deployWebappCoreId) => {
-        let text;
-        if (deployWebappId) {
-            text = (`deploy/deploy-webapp #${deployWebappId} ` +
-                    `(deploy/deploy-webapp-core #${deployWebappCoreId}) ` +
-                    `is currently running.`);
-        } else {
-            text = "No deploy is currently running.";
-        }
-        replyAsSun(msg, text);
-    });
+    return jenkinsJobStatus("deploy/deploy-webapp").then(
+        deployWebappId => deployWebappCoreStatus(
+            deployWebappId).then(deployWebappCoreId => {
+                let text;
+                if (deployWebappId) {
+                    text = (`deploy/deploy-webapp #${deployWebappId} ` +
+                            `(deploy/deploy-webapp-core ` +
+                            `#${deployWebappCoreId}) is currently running.`);
+                } else {
+                    text = "No deploy is currently running.";
+                }
+                replyAsSun(msg, text);
+            }));
 }
 
 function handlePodBayDoors(msg) {
@@ -1035,15 +1071,17 @@ function handleSafeDeploy(msg) {
 
 function handleSetDefault(msg) {
     return validateUserAuth(msg).then(() => {
-        jenkinsJobStatus("deploy/deploy-webapp-core").then(deployWebappId => {
-            validatePipelineStep("set-default-start", deployWebappId).then(isValid => {
+        return jenkinsJobStatus("deploy/deploy-webapp")
+        .then(deployWebappId => deployWebappCoreStatus(deployWebappId))
+        .then(deployWebappCoreId => {
+            return validatePipelineStep("set-default-start", deployWebappCoreId).then(isValid => {
                 if (!isValid) {
                     return wrongPipelineStep(msg, "set-default");
                 }
                 // Hit the "continue" button.
                 replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
                            "Telling Jenkins to set default");
-                const path = `${jobPath("deploy/deploy-webapp-core")}/${deployWebappId}/input/SetDefault/proceedEmpty`;
+                const path = `${jobPath("deploy/deploy-webapp-core")}/${deployWebappCoreId}/input/SetDefault/proceedEmpty`;
                 return runOnJenkins(null, path, {}, null, false);
             });
         });
@@ -1073,21 +1111,25 @@ function handleAbort(msg) {
 }
 
 function handleFinish(msg) {
-    return jenkinsJobStatus("deploy/deploy-webapp-core").then(deployWebappId => {
-        validatePipelineStep("finish-with-success", deployWebappId).then(isValid => {
-            if (!isValid) {
-                return wrongPipelineStep(msg, "finish-with-success");
-            }
-            // Hit the "continue" button.
-            replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
-                       "Telling Jenkins to finish this deploy!");
-            CC_USERS = [];
-            const path = `${jobPath("deploy/deploy-webapp-core")}/${deployWebappId}/input/Finish/proceedEmpty`;
-            // wait a little while before notifying the next person.
-            // hopefully the happy dance has appeared by then, if not
-            // humans will have to figure it out themselves.
-            setTimeout(() => doQueueNext(msg), 20000);
-            return runOnJenkins(null, path, {}, null, false);
+    return validateUserAuth(msg).then(() => {
+        return jenkinsJobStatus("deploy/deploy-webapp")
+        .then(deployWebappId => deployWebappCoreStatus(deployWebappId))
+        .then(deployWebappCoreId => {
+            return validatePipelineStep("finish-with-success", deployWebappCoreId).then(isValid => {
+                if (!isValid) {
+                    return wrongPipelineStep(msg, "finish-with-success");
+                }
+                // Hit the "continue" button.
+                replyAsSun(msg, (DEBUG ? "DEBUG :: " : "") +
+                           "Telling Jenkins to finish this deploy!");
+                CC_USERS = [];
+                const path = `${jobPath("deploy/deploy-webapp-core")}/${deployWebappCoreId}/input/Finish/proceedEmpty`;
+                // wait a little while before notifying the next person.
+                // hopefully the happy dance has appeared by then, if not
+                // humans will have to figure it out themselves.
+                setTimeout(() => doQueueNext(msg), 20000);
+                return runOnJenkins(null, path, {}, null, false);
+            });
         });
     });
 }
