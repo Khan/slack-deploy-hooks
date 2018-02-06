@@ -825,7 +825,7 @@ function validatePipelineStep(step, deployWebappCoreId) {
     if (!expectedName) {
         return Q(false);     // not a step we were expecting to see next!
     }
-    if (!deployWebappId) {
+    if (!deployWebappCoreId) {
         return Q(false);     // a deploy isn't even running now!
     }
 
