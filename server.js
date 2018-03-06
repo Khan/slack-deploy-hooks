@@ -1127,7 +1127,7 @@ function handleFinish(msg) {
                 // wait a little while before notifying the next person.
                 // hopefully the happy dance has appeared by then, if not
                 // humans will have to figure it out themselves.
-                setTimeout(() => doQueueNext(msg), 20000);
+                setTimeout(() => doQueueNext(msg), 5000);
                 return runOnJenkins(null, path, {}, null, false);
             });
         });
