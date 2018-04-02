@@ -4,6 +4,8 @@
 Slack Deploy Hooks replace the old Sun Wukong Hubot plugin and adds a
 lot of functionality.
 
+**This repository is deprecated.  See Khan/buildmaster for the new version.**
+
 ## Settings
 
 The environment variable `DEPLOY_ROOM_ID` sets the room in which the hooks will
